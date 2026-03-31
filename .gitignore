@@ -1,0 +1,21 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Research Data Files
+*.h5
+*.dat
+*.raw
+*.tif
+
+# Logs
+lightning_logs/
+multirun/
+outputs/

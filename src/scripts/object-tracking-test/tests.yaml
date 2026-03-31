@@ -1,0 +1,107 @@
+tests:
+  - id: 1
+    duration_frames: 300
+    targets:
+      - id: 1
+        start_pos: [0, 300]
+        radius: 5
+        speed_x: 2.0
+        speed_y: 0.0
+        path_type: "linear"
+
+  - id: 2
+    duration_frames: 300
+    targets:
+      - id: 1
+        start_pos: [0, 300]
+        radius: 2
+        speed_x: 8.0
+        speed_y: 2.0
+        path_type: "linear"
+
+  - id: 3
+    duration_frames: 300
+    targets:
+      - id: 1
+        start_pos: [0, 300]
+        radius: 4
+        speed_x: 4.0
+        speed_y: 0.0
+        path_type: "linear"
+    occlusions:
+      - rect: [300, 200, 200, 200]
+
+  - id: 4
+    duration_frames: 600
+    targets:
+      - id: 1
+        start_pos: [0, 100]
+        radius: 3
+        speed_x: 5.0
+        speed_y: 2.0
+        path_type: "linear"
+      - id: 2
+        start_pos: [800, 500]
+        radius: 5
+        speed_x: -4.0
+        speed_y: -1.0
+        path_type: "linear"
+      - id: 3
+        start_pos: [0, 300]
+        radius: 3
+        speed_x: 3.0
+        speed_y: 0.0
+        path_type: "sine"
+    occlusions:
+      - rect: [200, 100, 100, 400]
+      - rect: [500, 100, 100, 400]
+
+  - id: 5
+    duration_frames: 189  # Exactly 3 rotations at 0.1 rad/frame
+    targets:
+      - id: 1
+        start_pos: [400, 300]  # Center of the screen
+        radius:  10             # Size of the target
+        speed_x: 50.0         # Orbit radius from center (pixels)
+        speed_y: 0.1           # Angular velocity (radians/frame)
+        path_type: "circular"
+
+  - id: 6
+    duration_frames: 189  # Exactly 3 rotations at 0.1 rad/frame
+    targets:
+      - id: 1
+        start_pos: [400, 300]  # Center of the screen
+        radius:  5             # Size of the target
+        speed_x: 50.0         # Orbit radius from center (pixels)
+        speed_y: 0.1           # Angular velocity (radians/frame)
+        path_type: "circular"
+
+  - id: 7
+    duration_frames: 189  # Exactly 3 rotations at 0.1 rad/frame
+    targets:
+      - id: 1
+        start_pos: [400, 300]  # Center of the screen
+        radius:  2             # Size of the target
+        speed_x: 50.0         # Orbit radius from center (pixels)
+        speed_y: 0.1           # Angular velocity (radians/frame)
+        path_type: "circular"
+
+  - id: 8
+    duration_frames: 189  # Exactly 3 rotations at 0.1 rad/frame
+    targets:
+      - id: 1
+        start_pos: [400, 300]  # Center of the screen
+        radius:  1             # Size of the target
+        speed_x: 50.0         # Orbit radius from center (pixels)
+        speed_y: 0.1           # Angular velocity (radians/frame)
+        path_type: "circular"
+
+  - id: 9
+    duration_frames: 1890  # Exactly 3 rotations at 0.1 rad/frame
+    targets:
+      - id: 1
+        start_pos: [400, 300]  # Center of the screen
+        radius:  1             # Size of the target
+        speed_x: 50.0         # Orbit radius from center (pixels)
+        speed_y: 1           # Angular velocity (radians/frame)
+        path_type: "circular"
