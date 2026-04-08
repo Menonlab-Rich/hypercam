@@ -1,5 +1,7 @@
 # ignore the data folder
 data
+*.parquet
+*.mp4
 
 # Python-generated files
 __pycache__/
