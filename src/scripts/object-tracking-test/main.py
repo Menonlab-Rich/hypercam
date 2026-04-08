@@ -1,10 +1,12 @@
-import pygame
 import argparse
-import sys
-import math
 import csv
-import yaml
+import json
+import math
 import os
+import sys
+
+import pygame
+import yaml
 
 # Constants
 WIDTH, HEIGHT = 800, 600
@@ -91,7 +93,7 @@ def load_test_case(config_file, test_id):
     return targets, occlusions, duration_frames
 
 def load_window_position():
-    """Reads the .position file and sets the SDL environment variable."""
+    """Reads the position file and sets the SDL environment variable."""
     if os.path.exists(POS_FILE):
         try:
             with open(POS_FILE, "r") as f:
@@ -100,19 +102,26 @@ def load_window_position():
         except Exception as e:
             print(f"Warning: Failed to load window position: {e}")
 
-def save_window_position():
-    """Retrieves the current window position and saves it to .position."""
+def get_window_position():
+    """Retrieves the current absolute window position relative to the monitor."""
     try:
         # Pygame 2.4+ standard window API
         if hasattr(pygame, 'Window'):
             window = pygame.Window.from_display_module()
-            x, y = window.position
+            return window.position
         else:
             # Fallback for earlier Pygame 2.x versions
             from pygame._sdl2.video import Window
             window = Window.from_display_module()
-            x, y = window.position
+            return window.position
+    except Exception as e:
+        print(f"Warning: Could not get window position (requires Pygame 2.x): {e}")
+        return (0, 0)
 
+def save_window_position():
+    """Retrieves the current window position and saves it to .position."""
+    try:
+        x, y = get_window_position()
         current_pos_str = f"{x},{y}"
         
         # Only write if the position has changed or file doesn't exist
@@ -128,9 +137,88 @@ def save_window_position():
             print(f"Window position saved: {current_pos_str}")
 
     except Exception as e:
-        print(f"Warning: Could not save window position (requires Pygame 2.x): {e}")
+        print(f"Warning: Could not save window position: {e}")
 
-def run_test(test_id, csv_writer, config_file, target_display):
+def run_calibration(screen, font, clock, test_id):
+    """Executes the pre-test calibration sequence to map screen space to absolute monitor space."""
+    pygame.mouse.set_visible(False)
+    points = []
+    prompts = ["Click TOP-LEFT of visible area", "Click BOTTOM-RIGHT of visible area"]
+    
+    for prompt_text in prompts:
+        waiting = True
+        frame = 0
+        while waiting:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit()
+                    sys.exit()
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    points.append(event.pos)
+                    waiting = False
+
+            screen.fill(BLACK)
+            text_surf = font.render(prompt_text, True, WHITE)
+            screen.blit(text_surf, text_surf.get_rect(center=(WIDTH // 2, HEIGHT // 2)))
+            
+            # 30Hz flickering pointer (toggles render state every frame)
+            if frame % 2 == 0:
+                mx, my = pygame.mouse.get_pos()
+                pygame.draw.line(screen, RED, (mx - 10, my), (mx + 10, my), 2)
+                pygame.draw.line(screen, RED, (mx, my - 10), (mx, my + 10), 2)
+            
+            pygame.display.flip()
+            clock.tick(FPS)
+            frame += 1
+
+    # Force position save and calculate absolute coordinates relative to the monitor
+    save_window_position()
+    win_x, win_y = get_window_position()
+    
+    tl_x, tl_y = points[0]
+    br_x, br_y = points[1]
+
+    abs_tl = (win_x + tl_x, win_y + tl_y)
+    abs_br = (win_x + br_x, win_y + br_y)
+
+    calibration_data = {
+        "test_id": test_id,
+        "window_position": [win_x, win_y],
+        "relative_fov": {
+            "top_left": [tl_x, tl_y],
+            "bottom_right": [br_x, br_y]
+        },
+        "absolute_fov": {
+            "top_left": abs_tl,
+            "bottom_right": abs_br
+        }
+    }
+
+    output_file = f"calibration_test_{test_id}.json"
+    with open(output_file, "w") as f:
+        json.dump(calibration_data, f, indent=4)
+    print(f"Calibration constraints saved to {output_file}")
+
+    # Calculate center relative to the window and blink 2x2 for 5 seconds (150 frames)
+    center_x = (tl_x + br_x) // 2
+    center_y = (tl_y + br_y) // 2
+
+    for frame in range(FPS * 5):
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+
+        screen.fill(BLACK)
+        if frame % 2 == 0:
+            pygame.draw.rect(screen, WHITE, (center_x - 1, center_y - 1, 2, 2))
+
+        pygame.display.flip()
+        clock.tick(FPS)
+
+    pygame.mouse.set_visible(True)
+
+def run_test(test_id, csv_writer, config_file, target_display, no_display=False):
     targets, occlusions, duration_frames = load_test_case(config_file, test_id)
     if not targets:
         print(f"Test {test_id} not found in {config_file}.")
@@ -154,63 +242,52 @@ def run_test(test_id, csv_writer, config_file, target_display):
 
     print(f"--- Starting Test {test_id} ---")
     
-    # --- Alignment and Start Sequence ---
-    waiting = True
-    prompt_text = font.render(f"Test {test_id} Ready. Press SPACE to start.", True, WHITE)
-    text_rect = prompt_text.get_rect(center=(WIDTH // 2, HEIGHT // 2))
+    if not no_display:
+        # Run calibration sequence before starting test data loop
+        run_calibration(screen, font, clock, test_id)
 
-    while waiting:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                pygame.quit()
-                sys.exit()
-            if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
-                save_window_position()
-                waiting = False
+        # --- Main Tracking Sequence ---
+        for frame in range(duration_frames):
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit()
+                    sys.exit()
 
-        screen.fill(BLACK)
-        
-        for target in targets:
-            target.update(0)
-            target.draw(screen)
-            
-        for occ in occlusions:
-            occ.draw(screen)
+            screen.fill(BLACK)
+            timestamp_ms = (frame / FPS) * 1000.0
 
-        screen.blit(prompt_text, text_rect)
-        pygame.display.flip()
-        clock.tick(FPS)
+            for target in targets:
+                target.update(frame)
+                target.draw(screen)
+                csv_writer.writerow([test_id, frame, timestamp_ms, target.id, target.x, target.y, target.radius])
 
-    # --- Main Tracking Sequence ---
-    for frame in range(duration_frames):
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                pygame.quit()
-                sys.exit()
+            for occ in occlusions:
+                occ.draw(screen)
 
-        screen.fill(BLACK)
-        timestamp_ms = (frame / FPS) * 1000.0
+            pygame.display.flip()
+            clock.tick(FPS)
 
-        for target in targets:
-            target.update(frame)
-            target.draw(screen)
-            csv_writer.writerow([test_id, frame, timestamp_ms, target.id, target.x, target.y, target.radius])
+        pygame.quit()
+    else:
+        for frame in range(duration_frames):
+            timestamp_ms = (frame / FPS) * 1000.0
 
-        for occ in occlusions:
-            occ.draw(screen)
+            for target in targets:
+                target.update(frame)
+                csv_writer.writerow([test_id, frame, timestamp_ms, target.id, target.x, target.y, target.radius])
 
-        pygame.display.flip()
-        clock.tick(FPS)
+            clock.tick(FPS)
 
-    pygame.quit()
+        pygame.quit()
 
 def main():
     parser = argparse.ArgumentParser(description="Event Sensor Tracking Test Suite")
-    parser.add_argument("--test", type=int, help="Run a specific test case ID")
+    parser.add_argument("--test", nargs="+", type=int, help="Run a specific test case ID")
     parser.add_argument("--all", action="store_true", help="Run all test cases sequentially")
     parser.add_argument("--out", type=str, default="tracking_log.csv", help="Output CSV file for sync data")
     parser.add_argument("--config", type=str, default="tests.yaml", help="Path to the YAML configuration file")
     parser.add_argument("--display", type=int, default=0, help="Display index to run the tests on (0 is primary)")
+    parser.add_argument("--no-display", action="store_true", help="Bypass display and only produce logs")
     args = parser.parse_args()
 
     if not args.test and not args.all:
@@ -229,10 +306,10 @@ def main():
         writer = csv.writer(file)
         writer.writerow(["test_id", "frame_number", "timestamp_ms", "object_id", "pos_x", "pos_y", "radius"])
         
-        tests_to_run = sorted(available_tests) if args.all else [args.test]
+        tests_to_run = sorted(available_tests) if args.all else args.test
 
         for t in tests_to_run:
-            run_test(t, writer, args.config, args.display)
+            run_test(t, writer, args.config, args.display, args.no_display)
 
     print(f"Testing complete. Synchronization data saved to {args.out}")
 
