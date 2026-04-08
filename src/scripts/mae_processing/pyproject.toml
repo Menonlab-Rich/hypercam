@@ -1,0 +1,12 @@
+[project]
+name = "mae-processing"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = "==3.12.*"
+dependencies = [
+    "matplotlib>=3.10.8",
+    "pandas>=3.0.2",
+    "polars>=1.39.3",
+    "pyarrow>=23.0.1",
+]

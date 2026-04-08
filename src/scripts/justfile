@@ -1,0 +1,21 @@
+# Run all tasks by default
+default:
+    @just --list
+
+# Run event-tracking/main.py
+event-track *args:
+    cd event-tracking && uv run main.py {{args}}
+
+# Run mae_processing/main.py
+mae-process *args:
+    cd mae_processing && uv run main.py {{args}}
+
+# Run object-tracking-test/main.py
+object-track *args:
+    cd object-tracking-test && uv run main.py {{args}}
+
+# Run all pipelines sequentially
+run-all:
+    just object-track
+    just event-track
+    just mae-process
