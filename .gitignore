@@ -1,3 +1,6 @@
+# ignore the data folder
+data
+
 # Python-generated files
 __pycache__/
 *.py[oc]
