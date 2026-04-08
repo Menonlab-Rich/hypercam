@@ -3,10 +3,15 @@ name = "hypercam"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.13"
-dependencies = []
+requires-python = "==3.12.*"
+dependencies = [
+    "pandas>=3.0.2",
+    "polars>=1.39.3",
+    "scikit-learn>=1.8.0",
+    "scipy>=1.17.1",
+]
 
 [tool.uv.workspace]
 members = [
-    "src/scripts/object-tracking-test",
+    "src/scripts/mae_processing",
 ]

@@ -1,0 +1,3 @@
+[submodule "openeb-modules"]
+	path = openeb-modules
+	url = git@github.com:Menonlab-Rich/openeb-modules.git
