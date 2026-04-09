@@ -36,9 +36,6 @@ class Target:
             self.x = self.start_pos[0] + self.speed_x * frame
             self.y = self.start_pos[1] + math.sin(frame * 0.1) * 100
         elif self.path_type == "circular":
-            # speed_x = Orbit Radius (pixels)
-            # speed_y = Angular Velocity (radians per frame)
-            # start_pos = Center of the orbit
             self.x = self.start_pos[0] + self.speed_x * math.cos(frame * self.speed_y)
             self.y = self.start_pos[1] + self.speed_x * math.sin(frame * self.speed_y)
         
@@ -102,18 +99,21 @@ def load_window_position():
         except Exception as e:
             print(f"Warning: Failed to load window position: {e}")
 
+_main_window = None
+
 def get_window_position():
     """Retrieves the current absolute window position relative to the monitor."""
+    global _main_window
     try:
-        # Pygame 2.4+ standard window API
-        if hasattr(pygame, 'Window'):
-            window = pygame.Window.from_display_module()
-            return window.position
-        else:
-            # Fallback for earlier Pygame 2.x versions
-            from pygame._sdl2.video import Window
-            window = Window.from_display_module()
-            return window.position
+        if _main_window is None:
+            # Pygame 2.4+ standard window API
+            if hasattr(pygame, 'Window'):
+                _main_window = pygame.Window.from_display_module()
+            else:
+                # Fallback for earlier Pygame 2.x versions
+                from pygame._sdl2.video import Window
+                _main_window = Window.from_display_module()
+        return _main_window.position
     except Exception as e:
         print(f"Warning: Could not get window position (requires Pygame 2.x): {e}")
         return (0, 0)
@@ -139,7 +139,7 @@ def save_window_position():
     except Exception as e:
         print(f"Warning: Could not save window position: {e}")
 
-def run_calibration(screen, font, clock, test_id):
+def run_calibration(screen, font, clock):
     """Executes the pre-test calibration sequence to map screen space to absolute monitor space."""
     pygame.mouse.set_visible(False)
     points = []
@@ -148,6 +148,11 @@ def run_calibration(screen, font, clock, test_id):
     for prompt_text in prompts:
         waiting = True
         frame = 0
+        
+        # Pre-render the font surface once per prompt
+        text_surf = font.render(prompt_text, True, WHITE)
+        text_rect = text_surf.get_rect(center=(WIDTH // 2, HEIGHT // 2))
+        
         while waiting:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -158,8 +163,7 @@ def run_calibration(screen, font, clock, test_id):
                     waiting = False
 
             screen.fill(BLACK)
-            text_surf = font.render(prompt_text, True, WHITE)
-            screen.blit(text_surf, text_surf.get_rect(center=(WIDTH // 2, HEIGHT // 2)))
+            screen.blit(text_surf, text_rect)
             
             # 30Hz flickering pointer (toggles render state every frame)
             if frame % 2 == 0:
@@ -182,7 +186,6 @@ def run_calibration(screen, font, clock, test_id):
     abs_br = (win_x + br_x, win_y + br_y)
 
     calibration_data = {
-        "test_id": test_id,
         "window_position": [win_x, win_y],
         "relative_fov": {
             "top_left": [tl_x, tl_y],
@@ -194,7 +197,7 @@ def run_calibration(screen, font, clock, test_id):
         }
     }
 
-    output_file = f"calibration_test_{test_id}.json"
+    output_file = "calibration.json"
     with open(output_file, "w") as f:
         json.dump(calibration_data, f, indent=4)
     print(f"Calibration constraints saved to {output_file}")
@@ -218,35 +221,38 @@ def run_calibration(screen, font, clock, test_id):
 
     pygame.mouse.set_visible(True)
 
-def run_test(test_id, csv_writer, config_file, target_display, no_display=False):
+def blink_test_id(screen, font, clock, test_id):
+    """Blinks the upcoming Test ID at 15Hz for 2 seconds before starting."""
+    text_surf = font.render(f"TEST ID: {test_id}", True, WHITE)
+    text_rect = text_surf.get_rect(center=(WIDTH // 2, HEIGHT // 2))
+    
+    # 2 seconds total duration
+    for frame in range(FPS * 2):
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+
+        screen.fill(BLACK)
+        
+        # 15Hz blink at 30 FPS means toggling state every 1 frame.
+        if frame % 2 == 0:
+            screen.blit(text_surf, text_rect)
+
+        pygame.display.flip()
+        clock.tick(FPS)
+
+def run_test(test_id, csv_writer, config_file, screen, font, clock, no_display=False):
     targets, occlusions, duration_frames = load_test_case(config_file, test_id)
     if not targets:
         print(f"Test {test_id} not found in {config_file}.")
         return
 
-    # Load previously saved position before initializing display
-    load_window_position()
-
-    pygame.init()
-    pygame.font.init()
-    
-    num_displays = pygame.display.get_num_displays()
-    if target_display >= num_displays:
-        print(f"Warning: Display {target_display} not found. Defaulting to Display 0. (Available: {num_displays})")
-        target_display = 0
-
-    screen = pygame.display.set_mode((WIDTH, HEIGHT), display=target_display)
-    pygame.display.set_caption(f"Tracking Test Case {test_id}")
-    clock = pygame.time.Clock()
-    font = pygame.font.SysFont(None, 36)
-
     print(f"--- Starting Test {test_id} ---")
     
     if not no_display:
-        # Run calibration sequence before starting test data loop
-        run_calibration(screen, font, clock, test_id)
+        blink_test_id(screen, font, clock, test_id)
 
-        # --- Main Tracking Sequence ---
         for frame in range(duration_frames):
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -266,10 +272,10 @@ def run_test(test_id, csv_writer, config_file, target_display, no_display=False)
 
             pygame.display.flip()
             clock.tick(FPS)
-
-        pygame.quit()
     else:
         for frame in range(duration_frames):
+            # Pump events to prevent OS unresponsiveness timeouts
+            pygame.event.pump() 
             timestamp_ms = (frame / FPS) * 1000.0
 
             for target in targets:
@@ -277,8 +283,6 @@ def run_test(test_id, csv_writer, config_file, target_display, no_display=False)
                 csv_writer.writerow([test_id, frame, timestamp_ms, target.id, target.x, target.y, target.radius])
 
             clock.tick(FPS)
-
-        pygame.quit()
 
 def main():
     parser = argparse.ArgumentParser(description="Event Sensor Tracking Test Suite")
@@ -294,12 +298,30 @@ def main():
         parser.print_help()
         sys.exit(1)
 
+    # Load previously saved position before initializing display
+    load_window_position()
+
+    pygame.init()
+    pygame.font.init()
+
+    num_displays = pygame.display.get_num_displays()
+    target_display = args.display
+    if target_display >= num_displays:
+        print(f"Warning: Display {target_display} not found. Defaulting to Display 0. (Available: {num_displays})")
+        target_display = 0
+
+    screen = pygame.display.set_mode((WIDTH, HEIGHT), display=target_display)
+    pygame.display.set_caption("Tracking Test Suite")
+    clock = pygame.time.Clock()
+    font = pygame.font.SysFont(None, 36)
+
     try:
         with open(args.config, "r") as f:
             config_data = yaml.safe_load(f)
             available_tests = [t["id"] for t in config_data.get("tests", []) if "id" in t]
     except FileNotFoundError:
         print(f"Error: Configuration file '{args.config}' not found.")
+        pygame.quit()
         sys.exit(1)
 
     with open(args.out, mode='w', newline='') as file:
@@ -308,10 +330,15 @@ def main():
         
         tests_to_run = sorted(available_tests) if args.all else args.test
 
+        # Run calibration once per batch if display is active
+        if not args.no_display:
+            run_calibration(screen, font, clock)
+
         for t in tests_to_run:
-            run_test(t, writer, args.config, args.display, args.no_display)
+            run_test(t, writer, args.config, screen, font, clock, args.no_display)
 
     print(f"Testing complete. Synchronization data saved to {args.out}")
+    pygame.quit()
 
 if __name__ == "__main__":
     main()
