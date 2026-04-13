@@ -4,7 +4,7 @@ import json
 import math
 import os
 import sys
-
+from datetime import datetime
 import pygame
 import yaml
 
@@ -139,7 +139,7 @@ def save_window_position():
     except Exception as e:
         print(f"Warning: Could not save window position: {e}")
 
-def run_calibration(screen, font, clock):
+def run_calibration(screen, font, clock, name):
     """Executes the pre-test calibration sequence to map screen space to absolute monitor space."""
     pygame.mouse.set_visible(False)
     points = []
@@ -197,7 +197,7 @@ def run_calibration(screen, font, clock):
         }
     }
 
-    output_file = "calibration.json"
+    output_file = f"calibration_{name}.json"
     with open(output_file, "w") as f:
         json.dump(calibration_data, f, indent=4)
     print(f"Calibration constraints saved to {output_file}")
@@ -288,9 +288,9 @@ def main():
     parser = argparse.ArgumentParser(description="Event Sensor Tracking Test Suite")
     parser.add_argument("--test", nargs="+", type=int, help="Run a specific test case ID")
     parser.add_argument("--all", action="store_true", help="Run all test cases sequentially")
-    parser.add_argument("--out", type=str, default="tracking_log.csv", help="Output CSV file for sync data")
     parser.add_argument("--config", type=str, default="tests.yaml", help="Path to the YAML configuration file")
     parser.add_argument("--display", type=int, default=0, help="Display index to run the tests on (0 is primary)")
+    parser.add_argument("--name", type=str, default=datetime.now().strftime("%Y%m%d_%H.%M.%S"), help="Name of test suite")
     parser.add_argument("--no-display", action="store_true", help="Bypass display and only produce logs")
     args = parser.parse_args()
 
@@ -324,7 +324,7 @@ def main():
         pygame.quit()
         sys.exit(1)
 
-    with open(args.out, mode='w', newline='') as file:
+    with open(f"{args.name}_tracking.csv", mode='w', newline='') as file:
         writer = csv.writer(file)
         writer.writerow(["test_id", "frame_number", "timestamp_ms", "object_id", "pos_x", "pos_y", "radius"])
         
@@ -332,12 +332,12 @@ def main():
 
         # Run calibration once per batch if display is active
         if not args.no_display:
-            run_calibration(screen, font, clock)
+            run_calibration(screen, font, clock, args.name)
 
         for t in tests_to_run:
             run_test(t, writer, args.config, screen, font, clock, args.no_display)
 
-    print(f"Testing complete. Synchronization data saved to {args.out}")
+    print(f"Testing complete. Synchronization data saved to {args.name}_tracking.csv")
     pygame.quit()
 
 if __name__ == "__main__":
