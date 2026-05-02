@@ -1,0 +1,186 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{geometry}
+\usepackage{bm}
+
+\geometry{a4paper, margin=1in}
+
+\title{\textbf{Fundamental Cramér-Rao Lower Bounds for 3D Tracking:\\ A Comparative Analysis of CMOS and Event Sensors}}
+\author{Rich Baird}
+\date{May 2026}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This paper establishes the Cramér-Rao Lower Bounds (CRLB) for 3D spatial localization using both traditional integrating (CMOS) and differential event-based sensors. By rigorously defining the forward models and evaluating the asymptotic extrema of the spatial Fisher Information, we formally prove the fundamental limits of each modality. 
+
+Specifically, we demonstrate that when an event sensor is treated as a frame-based integrating device, it cannot exceed the theoretical performance of an ideal CMOS sensor. We show that its performance is fundamentally bottlenecked by hardware quantization
+at long integration times and photon starvation at short integration times. These findings mathematically underscore the imperative to favor continuous-time, asynchronous processing for neuromorphic event data.
+\end{abstract}
+
+\section{Introduction}
+
+Let $\theta_i$ be a parameter in the set $\bm{\theta}$ that defines all the variables affecting the output of a forward model. Here, $\bm{\theta}$ represents the true but unknown values of these parameters, defining the parameter space. An estimator $d(\bm{\chi})$ attempts to estimate these values given a set of observations $\bm{\chi}$. The result of the estimation is the estimation space $\hat{\bm{\theta}}$. An estimator is considered unbiased if:
+\begin{equation}
+\mathbb{E} (\hat{\bm{\theta}} - \bm{\theta}) = 0
+\end{equation}
+
+The goal of this derivation is to define the lowest possible uncertainty (variance) score under the assumption of an unbiased estimator. While a true unbiased estimator is often intractable due to physical limitations, the Cramér-Rao Lower Bound (CRLB) provides the absolute theoretical best-case limit.
+
+To evaluate this, we must establish the generator for the observation space $\bm{\chi}$. The forward model $g(\bm{\theta}, \bm{\chi})$ defines a function $g$ that maps $\bm{\theta}$ to $\bm{\chi}$. If we take $\bm{\chi}$ to be a set of sampled points governed by a probability distribution $f$, we can treat $g$ as the expected value of that distribution:
+\begin{equation}
+g: \bm{\theta} \to \bm{\chi}, \quad \bm{\theta} \mapsto \mathbb{E} \left[f\right]
+\end{equation}
+
+\section{Traditional CMOS Sensor Derivation}
+
+Following the model laid out by Gerwe \& Idell (2003), the rigorous static CMOS model calculates the expected photon flux at a specific focal-plane-array element $(x, y)$. This expected value is the convolution of the projected source intensity $I$ and the Point Spread Function (PSF), integrated over the physical area of the pixel $\mathcal{A}_{x,y}$, plus a background rate $b$:
+\begin{equation}
+g_s(x,y \mid \bm{\theta}) = \iint_{(\xi, \eta) \in \mathcal{A}_{x,y}} \left[ I(\xi, \eta \mid \bm{\theta}) * \text{PSF}(\xi, \eta, \bm{\theta}) \right] d\xi \, d\eta + b
+\end{equation}
+
+In the case of a single sub-diffraction point source, the source intensity $I$ is modeled as $N\delta$, where $N = \text{Flux} \times \text{Time}$. The convolution of a delta function with the PSF evaluates directly to the PSF itself at location $(\xi, \eta)$. Assuming the pixel size is small relative to the PSF, the forward model simplifies to a direct scaling of the PSF evaluated at the pixel center:
+\begin{equation}
+g_s(x,y \mid \bm{\theta}) = N \cdot \text{PSF}(x, y \mid \bm{\theta}) + b
+\end{equation}
+
+We take this to be the case for the purposes of 3D localization, defining $\bm{\theta} = \{x_c, y_c, z_c\}$.
+
+
+\subsection{Depth Encoding and the Rayleigh Range}
+To perform 3D localization, our forward model must encode the axial depth parameter $z_c$. In standard optical systems, depth is encoded through defocus blur. As a point source moves away from the sensor's focal plane ($z=0$), the projected spot of light expands. We model the PSF as a 2D Gaussian whose variance $\sigma^2$ is a function of depth $z_c$:
+\begin{equation}
+\sigma(z_c)^2 = \sigma_0^2 \left( 1 + \left(\frac{z_c}{Z_R}\right)^2 \right)
+\end{equation}
+Where $\sigma_0$ is the beam waist (minimum blur radius at focus), and $Z_R$ is the Rayleigh Range, which characterizes the camera's depth of field. 
+
+\subsection{The CMOS Fisher Information Matrix}
+The noise of a standard sensor is a combination of Poisson shot noise and Gaussian readout noise. Gerwe \& Idell approximate this combined noise model $d$ as: 
+\begin{equation}
+d(x, y) \approx \operatorname{Poisson}\left\{ g_s(x, y \mid \bm{\theta}) + \sigma_r^2 \right\} - \sigma_r^2
+\end{equation}
+Where $\sigma_r$ is the readout noise standard deviation. From this, the discrete Fisher Information Matrix (FIM) is defined as:
+\begin{equation}
+[F(\bm{\theta})]_{ij} = \sum_{x,y} \frac{1}{g_s(x,y \mid \bm{\theta}) + \sigma_r^2} \left( \frac{\partial g_s}{\partial \theta_i} \right) \left( \frac{\partial g_s}{\partial \theta_j} \right)
+\end{equation}
+
+Assuming the pixel dimensions satisfy the Nyquist criterion relative to the PSF, deriving a closed-form analytical expression becomes mathematically tractable by approximating the discrete sum as a continuous double integral over the sensor plane $\mathbb{R}^2$:
+
+\begin{equation}
+[F(\bm{\theta})]_{ij} \approx \iint_{-\infty}^{\infty} \frac{1}{N \cdot \text{PSF}(x,y) + \beta} \left( \frac{\partial g_s}{\partial \theta_i} \right) \left( \frac{\partial g_s}{\partial \theta_j} \right) dx \, dy
+\end{equation}
+Where $\beta = b + \sigma_r^2$ represents the total background variance per pixel. 
+
+Because this integral lacks a simple closed-form solution, we evaluate the spatial parameters at the two defining physical limits of the sensor. For lateral position $X$ ($I_{xx}$) and axial depth $Z$ ($I_{zz}$), the analytical evaluations yield the following Fisher Information ($I$) and lower bounds ($\text{CRLB} = I^{-1}$):
+
+\vspace{0.5em}
+\noindent \textbf{1. The Photon-Noise Limit ($\beta \to 0$):}
+\begin{equation}
+I_{xx} = \frac{N}{\sigma(z_c)^2} \quad \implies \quad \text{CRLB}_X \ge \frac{\sigma(z_c)^2}{N}
+\end{equation}
+\begin{equation}
+I_{zz} = \frac{4 N z_c^2}{(z_c^2 + Z_R^2)^2} \quad \implies \quad \text{CRLB}_Z \ge \frac{(z_c^2 + Z_R^2)^2}{4 N z_c^2}
+\end{equation}
+
+\vspace{0.5em}
+\noindent \textbf{2. The Background-Noise Limit ($\beta \gg N \cdot \text{PSF}$):}
+\begin{equation}
+I_{xx} = \frac{N^2 Z_R^4}{8\pi \beta (z_c^2 + Z_R^2)^2 \sigma_0^4} \quad \implies \quad \text{CRLB}_X \ge \frac{8\pi \beta \sigma(z_c)^4}{N^2}
+\end{equation}
+\begin{equation}
+I_{zz} = \frac{N^2 z_c^2 Z_R^2}{2\pi \beta (z_c^2 + Z_R^2)^3 \sigma_0^2} \quad \implies \quad \text{CRLB}_Z \ge \frac{2\pi \beta (z_c^2 + Z_R^2)^3 \sigma_0^2}{N^2 z_c^2 Z_R^2}
+\end{equation}
+
+\subsection{Conclusion (CMOS)}
+Evaluation of the Cramér-Rao Lower Bounds reveals two fundamental properties of standard optical CMOS tracking:
+
+\begin{enumerate}
+    \item \textbf{The Depth Dead Zone:} Both the photon-limited and background-limited bounds for depth contain a $z_c^2$ term in the denominator. As the target approaches the exact focal plane ($z_c \to 0$), the CRLB approaches infinity. Because a standard PSF expands symmetrically on either side of the focal plane, its spatial derivative at focus is zero. This fundamental blindness to focal-plane variations necessitates PSF engineering to break axial symmetry.
+    \item \textbf{Asymptotic Scaling Laws:} Outside of the dead zone, the localization variance limits strictly scale with respect to total photon count $N$ (where $N \propto \text{Time } T$). In the photon-limited regime, variance scales as $\mathcal{O}(N^{-1})$. In the background-limited regime, variance scales as $\mathcal{O}(N^{-2})$. These standard limits serve as the baseline against which differential sensors must be compared.
+\end{enumerate}
+
+
+\section{The Event Sensor}
+
+The event sensor operates on a fundamentally different principle than traditional image sensors. Whereas traditional sensors capture photon-induced charge into electron wells and integrate it over a fixed exposure window, event sensors—often referred to as Dynamic Vision Sensors (DVS)—respond to local changes in light at discrete moments in continuous time with logarithmic sensitivity. 
+
+DVS pixels fire asynchronously whenever the absolute change in log-intensity crosses a hardware threshold $\mathcal{T}$. (Note: In practice, there are typically two distinct thresholds for positive and negative changes; here we assume a symmetrical threshold value for simplicity, which does not alter the underlying asymptotic mathematics).
+
+Taken on its own, a single event spike offers very little structural information. However, Shah et al. (2024) have shown that when integrated (binned) over a period of time $\tau$, the resulting event frame $E$ mathematically approximates the logarithmic difference of intensity:
+\begin{equation}
+E(x,y) \approx \frac{1}{\mathcal{T}} \left( \log I_{t+\tau}(x,y) - \log I_t(x,y) \right)
+\end{equation}
+
+\subsection{Event Frame Generation and Intensity Parameters}
+Because event sensors trigger on temporal contrast, the measurement depends on the target's dynamics over the integration interval $\tau$. We parameterize the changing light signal using two macroscopic intensity variables:
+\begin{itemize}
+    \item \textbf{$\mu$ (Base Intensity):} The expected number of photons arriving at the pixel during the interval if the target were stationary. This is identical to our noiseless static CMOS model: $\mu = g_s(x,y \mid \bm{\theta})$.
+    \item \textbf{$\nu$ (Intensity Difference):} The expected change in the photon count over the interval $\tau$ due strictly to the target's motion, driven by the temporal derivative of the forward model.
+\end{itemize}
+
+If we subdivide the integration interval $\tau$ into $K$ infinitesimally small steps, the total change in log-intensity $\Delta L$ is the sum of the changes across each step:
+\begin{equation}
+\Delta L = \sum_{k=1}^{K} \log \left( \frac{\Phi_{k}}{\Phi_{k-1}} \right)
+\end{equation}
+Where $\Phi_k$ is the expected photon flux at step $k$. Assuming the time interval between steps is small, $\Phi_k / \Phi_{k-1}$ is near unity. Applying the Taylor expansion $\log(x) \approx x - 1$, we obtain:
+\begin{equation}
+\Delta L \approx \sum_{k=1}^{K} \frac{\Phi_k - \Phi_{k-1}}{\Phi_{k-1}}
+\end{equation}
+
+Because photon arrivals follow a Poisson process, the change $\Delta \lambda_k$ is treated as a Poisson random variable. Assuming the base intensity is large and constant over the micro-step, the sum of these independent variables converges. 
+
+However, a physical Event Camera only registers an event when the log-intensity change crosses the discrete threshold $\mathcal{T}$. Modeling this quantization error as a uniform distribution yields a static variance term $\sigma_q^2 = \frac{\mathcal{T}^2}{12}$. Incorporating this quantization limit, the accumulated log-intensity change $\Delta L$ over the interval $\tau$ can be approximated as a Normal distribution:
+
+\begin{equation}
+\Delta L \sim \mathcal{N}\left( \frac{\nu}{\mu}, \frac{\nu}{\mu^2} + \sigma_q^2 \right)
+\end{equation}
+
+Evaluating the expected value of the squared scores ($\mathbb{E}[(\nabla \ln \mathcal{L})^2]$) for this Normal distribution yields the Macroscopic Fisher Information Matrix $F_{\text{macro}}$:
+\begin{equation}
+F_{\text{macro}} = 
+\begin{bmatrix}
+\frac{\nu^2(2+\nu+\mu^2\sigma_q^2)}{\mu^2(\nu+\mu^2\sigma_q^2)^2} & -\frac{\nu(1+\nu+\mu^2\sigma_q^2)}{\mu(\nu+\mu^2\sigma_q^2)^2} \\[1em]
+-\frac{\nu(1+\nu+\mu^2\sigma_q^2)}{\mu(\nu+\mu^2\sigma_q^2)^2} & \frac{1+2\nu+2\mu^2\sigma_q^2}{2(\nu+\mu^2\sigma_q^2)^2}
+\end{bmatrix}
+\end{equation}
+
+\subsection{Spatial FIM and Asymptotic Scaling}
+To formally prove the temporal scaling limits of the Event Sensor, we map the macroscopic FIM back to the spatial parameter space using the Jacobian chain rule. For an arbitrary spatial parameter $\theta_i$:
+\begin{equation}
+I_{\theta_i} = J^T \cdot F_{\text{macro}} \cdot J \quad \text{where} \quad J = \begin{bmatrix} \frac{\partial \mu}{\partial \theta_i} \\[0.5em] \frac{\partial \nu}{\partial \theta_i} \end{bmatrix}
+\end{equation}
+
+We evaluate this with respect to the integration time $T$ by defining the base photon arrival rate as $\bar{\mu}$ and the differential photon rate as $\bar{\nu}$. Consequently, the macroscopic parameters scale linearly with time:
+\begin{equation}
+\mu = \bar{\mu} T, \quad \nu = \bar{\nu} T, \quad \frac{\partial \mu}{\partial \theta_i} = T \frac{\partial \bar{\mu}}{\partial \theta_i}, \quad \frac{\partial \nu}{\partial \theta_i} = T \frac{\partial \bar{\nu}}{\partial \theta_i}
+\end{equation}
+
+By substituting these temporal relationships into $I_{\theta_i}$, we yield a continuous analytical expression for the spatial Fisher Information purely as a function of the integration interval $T$. We then evaluate the limits of this expression at the extrema ($T \to 0$ and $T \to \infty$) to definitively establish the bounding behavior of the sensor.
+
+\section{Conclusion: Fundamental Limits and the Asynchronous Imperative}
+
+Evaluating the asymptotic extrema of the spatial Fisher Information formally establishes the fundamental bounds of the event sensor when treated as a frame-based integrating device.
+
+\vspace{0.5em}
+\noindent \textbf{1. The Long-Integration Quantization Ceiling ($T \to \infty$):} \\
+As the integration time approaches infinity, the Fisher Information asymptotically converges to a constant:
+\begin{equation}
+\lim_{T \to \infty} I_{\theta_i} = \frac{(\bar{\mu} \nabla \bar{\nu} - \bar{\nu} \nabla \bar{\mu})^2}{\bar{\mu}^4 \sigma_q^2}
+\end{equation}
+In this regime, the baseline photon count ($\bar{\mu}T$) overwhelms the differential signal. The localization precision becomes entirely bottlenecked by the quantization noise $\sigma_q^2$ of the hardware threshold. Consequently, the CRLB hits a hard, constant floor. Unlike a traditional CMOS sensor, which continuously improves its precision as $\mathcal{O}(T^{-1})$ by integrating more light, the event sensor is physically limited by its differential capacity to a constant error bound in the worst case.
+
+\vspace{0.5em}
+\noindent \textbf{2. The Short-Integration Physical Constraint ($T \to 0$):} \\
+Mathematically, as $T \to 0$, the $T^2$ scaling of the spatial Jacobian precisely cancels the $T^{-2}$ scaling of the differential variance term, causing the spatial Fisher Information to evaluate to a second constant. However, this is strictly an analytical artifact. At extremely short integration times, the $\Delta L$ log-intensity approximation no longer applies, as the assumption of a continuous, highly-populated baseline photon count collapses. Because the differential approximation is invalid in this photon-starved regime, the system must be evaluated by its underlying quantum arrivals. As formally established in the CMOS derivation, when evaluated via this fundamental integrating model, the lower bound is strictly limited to the standard $\mathcal{O}(T^{-1})$ scaling.
+
+\vspace{0.5em}
+\noindent \textbf{3. The Asynchronous Path Forward:} \\
+We have formally shown that the fundamental limit of the event sensor, when treated as an integrating sensor by binning events over time, cannot exceed the performance of a traditional integrating sensor in the best case, and is physically limited by the differential capacity of the sensor to a constant floor in the worst case.
+
+A significant amount of existing research utilizes Dynamic Vision Sensors effectively as high-speed traditional cameras, compressing the event stream into familiar frame-based representations to leverage legacy computer vision algorithms. While these sensors are highly sensitive and practically advantageous for low-latency tasks, this derivation proves that sacrificing temporal information for a spatial frame guarantees sub-optimal localization. While it remains to be formally proven whether event sensors are fundamentally capable of meeting or exceeding conventional bounds under purely asynchronous paradigms, this derivation definitively establishes that achieving such theoretical performance will require the complete abandonment of frame-based localization methods.
+
+\end{document}

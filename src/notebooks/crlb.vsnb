@@ -1,0 +1,349 @@
+{
+ "cells": [
+  {
+   "kind": 1,
+   "value": "# Overview\r\n\r\nLet $\\theta_i$ be a parameter in the set $\\theta$ that defines all the variables that affect the output of a forward model. $\\theta$ represents the true but unknown values of these parameters. We call $\\theta$ the parameter space.\r\nAn estimator $d(\\chi)$ attempts to estimate these values given a set of observations $\\chi$. The result of the estimation is the estimation space $\\hat{\\theta}$.\r\nAn estimator is considered unbiased given\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n$$ \\mathbb{E} (\\hat{\\theta} - \\theta) = 0 $$\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\nThe goal is to define the lowest uncertainty (variance) score possible under the assumption of an unbiased estimator. \r\nIt is important to note that a true unbiased estimator is intractable due to physical limitations so this provides the absolute unrealistically best case.\r\n\r\nWe must also establish the generator for the observation space $\\chi$. The forward model $g(\\theta, \\chi)$ defines a function $g$ that maps $\\theta$ to $\\chi$.\r\nIf we take $\\chi$ to be a set of sampled points with probability distribution $f$ then we can likewise treat $g$ as itself a probability distribution. \r\nThen we say that \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n$$g: \\theta \\to \\chi, \\quad \\theta \\mapsto \\mathbb{E} \\left[f\\right]$$\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n",
+   "languageId": "markdown",
+   "outputs": [],
+   "metadata": {},
+   "executionSummary": {}
+  },
+  {
+   "kind": 2,
+   "value": "(* 1. Define the Forward Model g as a function of theta and x *)\r\n(* For now, we keep it generic: g[\\[Theta], x] *)\r\nforwardModel = g[\\[Theta], x];\r\n\r\n(* 2. Define the 'unbiasedness' property *)\r\n(* This is a symbolic representation of E[d(x)] = \\[Theta] *)\r\nunbiasedCondition = Expectation[d[x], x \\[Distributed] dist] == \\[Theta];\r\n\r\n",
+   "languageId": "wolfram",
+   "outputs": [],
+   "metadata": {},
+   "executionSummary": {
+    "timing": {
+     "startTime": 1777742281618,
+     "endTime": 1777742281918
+    },
+    "executionOrder": 6,
+    "success": true
+   }
+  },
+  {
+   "kind": 1,
+   "value": "# CMOS Derivation\r\n\r\nFollowing the model laid out by Gerwe & Idell (2003), the rigorous static CMOS model calculates the expected photon flux at a specific focal-plane-array (FPA) element $(x, y)$. It is the convolution of the projected source intensity $I$ and the Point Spread Function (PSF), integrated over the physical area of the pixel $\\mathcal{A}_{x,y}$, plus a background rate $b$:\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n$$ \\mathbb{E} (\\hat{\\theta} - \\theta) = 0 $$\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\nIn the case of a single sub-diffraction point source, the source intensity $I$ is modeled as $N\\delta$ where $N = \\text{Flux} \\times \\text{Time}$. The convolution of a delta function with the PSF evaluates directly to the PSF itself at location $(\\xi, \\eta)$. Assuming the pixel size is small relative to the PSF, or that our discrete PSF function already accounts for pixel integration, the forward model simplifies to a direct scaling of the PSF evaluated at the pixel center:\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n$$g: \\theta \\to \\chi, \\quad \\theta \\mapsto \\mathbb{E} \\left[f\\right]$$\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\nWe restrict the derivation in this case to localization in 3D space. That is $\\theta = \\left\\{x, y, z\\right\\}$. Then the physically ideal model for $I$ is a point source, justifying our use of the simplified case for the remainder of the derivation.\r\n\r\nTo perform 3D localization, our forward model must encode the axial depth parameter $z_c$. In standard optical systems, depth is encoded through defocus blur. As a point source moves away from the sensor's focal plane ($z=0$), the projected spot of light expands. We model the Point Spread Function as a 2D Gaussian whose variance $\\sigma^2$ is a function of depth $z_c$:\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n$$ \\mathbb{E} (\\hat{\\theta} - \\theta) = 0 $$\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\nWhere: $\\sigma_0$ is the beam waist, representing the minimum blur radius when the object is perfectly in focus. $Z_R$ is the Rayleigh Range, a parameter characterizing the camera's depth of field. It dictates how rapidly the blur expands as the object moves out of focus. By substituting this depth-dependent $\\sigma(z_c)$ into our point-source forward model, the likelihood function becomes directly dependent on $z_c$, allowing us to calculate the Cramér-Rao Lower Bound for depth estimation.",
+   "languageId": "markdown",
+   "outputs": [],
+   "metadata": {},
+   "executionSummary": {}
+  },
+  {
+   "kind": 2,
+   "value": "(* ========================================== *)\r\n(* The Simplified (Point Source) Model *)\r\n(* ========================================== *)\r\n\r\n(* 0. Define depth-dependent blur width (Critical for Z-axis FIM) *)\r\n\\[Sigma][zc_] := \\[Sigma]0 * Sqrt[1 + (zc / zR)^2];\r\n\r\n(* 1. Define the PSF symbolically using \\[Sigma][zc] *)\r\npsf[x_, y_, xc_, yc_, zc_] := (1 / (2 * Pi * \\[Sigma][zc]^2)) * Exp[-((x - xc)^2 + (y - yc)^2) / (2 * \\[Sigma][zc]^2)];\r\n\r\n(* 2. Define the Forward Model *)\r\ngSimple[x_, y_, xc_, yc_, zc_] := Nphotons * psf[x, y, xc, yc, zc] + background;\r\n\r\n(* 3. Define how the gradient is calculated *)\r\ngradG[var_] := D[gSimple[x, y, xc, yc, zc], var];\r\n\r\n(* 4. Define the parameter list for indexing *)\r\n\\[Theta] = {xc, yc, zc};",
+   "languageId": "wolfram",
+   "outputs": [],
+   "metadata": {},
+   "executionSummary": {
+    "timing": {
+     "startTime": 1777742281920,
+     "endTime": 1777742281979
+    },
+    "executionOrder": 19,
+    "success": true
+   }
+  },
+  {
+   "kind": 1,
+   "value": "To define a lower bound, we must first define the Fisher Information Matrix for the forward model. The noise for the model is defined as being a linear combination of shot noise from a Poisson distribution, and readout noise sampled from a Gaussian distribution. Owing to the difficulty of defining a PDF that accurately encapsulates both distributions, Gerwe & Idell approximate the noise model $d$ as: \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n$$ \\mathbb{E} (\\hat{\\theta} - \\theta) = 0 $$\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\nWe take their lead and arrive at the resulting Fisher Information Matrix (FIM) defined as:\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n$$g: \\theta \\to \\chi, \\quad \\theta \\mapsto \\mathbb{E} \\left[f\\right]$$\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\nwhere $\\sigma_r$ often abbreviated simply to $\\sigma$, is the readout noise.\r\n\r\nWhile the sensor array is discrete, deriving a closed-form analytical expression for the CRLB is mathematically tractable if we approximate the sum over individual pixels as a continuous double integral over the sensor plane $\\mathbb{R}^2$. Assuming the pixel dimensions are sufficiently small compared to the PSF (Nyquist criterion), the discrete Fisher Information Matrix can be approximated continuously as:\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n$$ \\mathbb{E} (\\hat{\\theta} - \\theta) = 0 $$\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n",
+   "languageId": "markdown",
+   "mime": "text/markdown",
+   "outputs": [],
+   "metadata": {},
+   "executionSummary": {}
+  },
+  {
+   "kind": 2,
+   "value": "(* ========================================== *)\r\n(* 4. Continuous Fisher Information Matrix    *)\r\n(* ========================================== *)\r\n\r\nfimContinuous[i_, j_] := Integrate[\r\n  (gradG[\\[Theta][[i]]] * gradG[\\[Theta][[j]]]) / (gSimple[x, y, xc, yc, zc] + readNoiseVar),\r\n  {x, -Infinity, Infinity}, \r\n  {y, -Infinity, Infinity},\r\n  Assumptions - {\\[Sigma]0  0, zR  0, Nphotons  0, readNoiseVar = 0}\r\n]\r\n\r\n(* NOTE: We DO NOT evaluate fimContinuous[1,1] directly here! *)\r\n(* Mathematica will hang trying to find a closed-form solution. *)\r\n(* We skip directly to evaluating the physical limits in the next block. *)\r\n\r\n(* InfoXX = fimContinuous[1, 1]; *)\r\n(* InfoYY = fimContinuous[2, 2]; *)\r\n(* InfoZZ = fimContinuous[3, 3]; *)",
+   "languageId": "wolfram",
+   "outputs": [],
+   "metadata": {},
+   "executionSummary": {
+    "timing": {
+     "startTime": 1777742281980,
+     "endTime": 1777742282030
+    },
+    "executionOrder": 29,
+    "success": true
+   }
+  },
+  {
+   "kind": 1,
+   "value": "We evaluate the FIM entry for the $X$-coordinate, $I_{xx}$. First, we compute the partial derivative of the forward model with respect to $x_c$:\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n$$ \\mathbb{E} (\\hat{\\theta} - \\theta) = 0 $$\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\nSubstituting this into our continuous integral, we get the exact analytical form for the Fisher Information:\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n$$g: \\theta \\to \\chi, \\quad \\theta \\mapsto \\mathbb{E} \\left[f\\right]$$\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\nWhere $\\beta = b + \\sigma_r^2$ is the total background variance per pixel. Because this integral lacks a simple closed-form solution, we evaluate it at the two defining physical limits of the sensor:\r\n\r\n1. The Photon-Noise Limit ($\\beta \\to 0$): When the signal vastly overpowers the background read noise, the $\\beta$ term vanishes. The $N \\cdot \\text{PSF}$ terms partially cancel, yielding:\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n$$ \\mathbb{E} (\\hat{\\theta} - \\theta) = 0 $$\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\nTherefore, the best possible localization variance is $\\text{Var}(\\hat{x}_c) \\ge \\frac{\\sigma(z_c)^2}{N}$.\r\n\r\n2. The Background-Noise Limit ($\\beta \\gg N \\cdot \\text{PSF}$): When the background noise dominates (e.g., low light or extreme defocus), the denominator is approximately $\\beta$. The integral over $\\text{PSF}^2$ evaluates to $\\frac{1}{4\\pi\\sigma(z_c)^2}$, yielding:\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n$$g: \\theta \\to \\chi, \\quad \\theta \\mapsto \\mathbb{E} \\left[f\\right]$$\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\nTherefore, the localization variance scales with the square of the photon count: $\\text{Var}(\\hat{x}_c) \\ge \\frac{8 \\pi \\sigma(z_c)^4 \\beta}{N^2}$.\r\n\r\nYou can see the analytical results in the cell below. The first 2 equations represent the fisher information for signal and background regimes specifically, and the final 2 are the lower bounds for the same.",
+   "languageId": "markdown",
+   "mime": "text/markdown",
+   "outputs": [],
+   "metadata": {},
+   "executionSummary": {}
+  },
+  {
+   "kind": 2,
+   "value": "(* ========================================== *)\r\n(* 5. Evaluating FIM Limits for InfoXX        *)\r\n(* ========================================== *)\r\n\r\n(* Let's define the total background noise \\[Beta] *)\r\n\\[Beta] = background + readNoiseVar;\r\n\r\n(* The squared gradient for X from our earlier calculation *)\r\ngradXSquared = FullSimplify[gradG[xc]^2];\r\n\r\n(* Limit 1: Photon-Noise Limited (\\[Beta] - 0) *)\r\n(* We substitute \\[Beta] = 0 directly into the denominator *)\r\nintegrandPhoton = FullSimplify[gradXSquared / (Nphotons * psf[x, y, xc, yc, zc])];\r\n\r\nInfoXXPhoton = Integrate[\r\n  integrandPhoton, \r\n  {x, -Infinity, Infinity}, {y, -Infinity, Infinity},\r\n  Assumptions - {\\[Sigma]0  0, zR  0, Nphotons  0, zc \\[Element] Reals}\r\n]\r\n\r\n(* Limit 2: Background-Noise Limited (\\[Beta] dominates) *)\r\n(* We approximate the denominator as just \\[Beta] *)\r\nintegrandBackground = FullSimplify[gradXSquared / \\[Beta]];\r\n\r\nInfoXXBackground = Integrate[\r\n  integrandBackground, \r\n  {x, -Infinity, Infinity}, {y, -Infinity, Infinity},\r\n  Assumptions - {\\[Sigma]0  0, zR  0, Nphotons  0, \\[Beta]  0, zc \\[Element] Reals}\r\n]\r\n\r\n(* ========================================== *)\r\n(* 6. The Cramér-Rao Lower Bounds (CRLB)      *)\r\n(* ========================================== *)\r\n\r\n(* The CRLB is the inverse of the Fisher Information *)\r\nCRLBXphoton = 1 / InfoXXPhoton\r\nCRLBXbackground = 1 / InfoXXBackground",
+   "languageId": "wolfram",
+   "mime": "text/markdown",
+   "outputs": [
+    {
+     "items": [
+      {
+       "data": "<div class=\"wexpr\"><wgraph class=\"resizable\" style=\"width:59.4px;height:24.6px;\" aspect-ratio=\"0.414141\" tabIndex=\"-1\"><img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGMAAAApCAIAAACumgDIAAAA0npUWHRSYXcgcHJvZmlsZSB0eXBlIGV4aWYAAHjabU9RrsMgDPvnFO8IIQkOHIetVNoNdvxnCnp6neaK2BgnhTTerzP9TGiW5CUqGiCEN2/aKaosLM7SrnoBts/y3U/att9plX8NY/uPux9YrPVjkOgSNv9Abb4b9iDT5ee+9o+d117rbdDZzwv7wuL17+rf9xaKghzO6ioRaNQ1UZJQVErgxBNgMONQ8Sd5IIJtiJmwPhsndMQ9PRKMxjGfYHPBOrlcVdma+XWuylrM9aC/MvM5v27DXEKD6gBcAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAPHRFWHRTb2Z0d2FyZQBDcmVhdGVkIHdpdGggdGhlIFdvbGZyYW0gTGFuZ3VhZ2UgOiB3d3cud29sZnJhbS5jb21coqaFAAAAIXRFWHRDcmVhdGlvbiBUaW1lADIwMjY6MDU6MDIgMTE6MTg6NTTHRxpmAAAB90lEQVRoge1aW5KEMAiUrT2AR/UIc/PMh7spKkDSwcRHSX9NKQLpAEYYSiktAQC/VztwJYho/4GEy89kZ+4LIkop4Sk1jKm8P09Bb9lpMEVEmYKBXJxMKzHIWyBlb6lTmQ5ODU7T4mOK70xhab/FLxbCMkK534Vay1DTAeuulJQOW2gztS9P6sqLkVvEf3BJKVD4LSWloXog4PEyuE51malfbHqmSqpPqRWnEJA7UWxAL6Ds41lzOYpsBVeuRmsXpp+n8Fdn70vWWnCFiyMfJM53H3i63YNRFS4uViQt06oYr9OWHl9YuZ45kO3PxXu/ZnoRTKF4Yx75EDGFIphCEUyh+DtPfT6fS924L7ZtW9d1iYqOI7IPRTCFQv/uc3+vdE073FC7gAMtqqsYGVO90457WrH0K0y59+ecl8NsK5b+8ROHgYlQ75cXrVFnL8Vu1RfaBlf04Q2Z9A++pLFWcq7xVqLU344pa9phjVIqTdvKCufNVFT9ix2Gln5oNpNV1HvYR/Z53kxF6lTnETlsj9YpqX1GZbWmW5PMWUZVnDRDrgxE6zg+U2k6BqqFKnoln0HkqpkrNGglP47b8qFJGVrR3aMU3FFpRcq4D3rqaaBYRcNDNVie2GCY7XZ8IaMIplAoTN3qXwggTqgYEVMoHlm8L0HEFIov+TG8SGhPQfkAAAAASUVORK5CYII=\" /></wgraph></div>",
+       "mime": "x-application/wolfram-language-html"
+      }
+     ],
+     "id": "7199299d-02ae-4130-8bfd-f751a7db90cd"
+    },
+    {
+     "items": [
+      {
+       "data": "<div class=\"wexpr\"><wgraph class=\"resizable\" style=\"width:187.8px;height:25.2px;\" aspect-ratio=\"0.134185\" tabIndex=\"-1\"><img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAATkAAAAqCAIAAABHtrsnAAAA0XpUWHRSYXcgcHJvZmlsZSB0eXBlIGV4aWYAAHjadU/bDQMhDPtnio4QAjgwDu1xUjfo+HWAqrpKNSI2Jg8ljNfzDDeHRgm5WEUDhMgtN+0UVRYWR2kzTqS2Vbz6YRb6u9Mq3w+M7d+vvmGx1p9GonuST6BOeRfsRkmXH/fA+87XXuul0dnPib2M5M9a8c87maIgWmbMKmZo1DVQklBUiuHEA2BixKGSH+QBM5bBPCN1L3TosGv2CEg0Dl8h+UXq5DKjsjTy9PnXqZoeVCvH13kDqxJcaEJK2J4AAAAJcEhZcwAACxMAAAsTAQCanBgAAAA8dEVYdFNvZnR3YXJlAENyZWF0ZWQgd2l0aCB0aGUgV29sZnJhbSBMYW5ndWFnZSA6IHd3dy53b2xmcmFtLmNvbVyipoUAAAAhdEVYdENyZWF0aW9uIFRpbWUAMjAyNjowNTowMiAxMToyMDoxOV+O8eAAAAO2SURBVHic7ZxbkuMgDEVNVxaQpWYJ2bnnI9MUrRcyCDDd93ylHJDE4yLsxKTzPA8AwO15rA4ALCal9PnQs2p/jGDdH8rX6gDASlJK53lCY1sArS4mp7UlhKj0I/h+O8AGWh1CSimLMFCNg4TtF1squFoXdIL71b/OVbHlwrkidDsHaHUeZVYkc5o/myGFeZYuNUPMao60kuKTIZLDNRFy6YJBQKuj+AiMT98sEjFBlRLKn3mBjFaSOzKC0eIn4VXbWy0DesD96lTECW1frGpALCnWKu8znYirA1kUwByQVwdS7l2XQ/bMzUoTcziYAPLqTfE/Rr76wNkvMEONUOl8kFen4vyT0Cchi4XJRaOk5rrqvSxvW0ZqnQn6eh6Y2aAH7IEB2ANoFYA9wK4MgD1AXgVgD6BVAPYAWgVgD/7/vvp+v5eGAQCQeb1ez+fzwLMlAHYBe2AA9gBaBWAP8H9gAMIIORRSA3kVrKf5zUFy+NMguBfRY+ChkGKjoFWwK3MOTPV7GR3JcK12rnn3eVd7bSSdmSc2mFiaXz+a8xPGVS/9b1NpFr5IoZChvfnk2Bpy3uc4L9UrDUZGEPimYSqwvWgnfjQEQ5waFh5lnZAz6fCW5q343WMRPtlECTi9lG/nNxzjWspV9PvjObARk7iK+A+A5uXti9w46QISTz40kJvlNsVh0Fx7jlAxOs0Z0uHokGoYxKb2TNL2fpi9JJrVmqmd5OhvSDXCw9SGfz5Xz9PwKND+lg+l2D/GAvEgNbWYSrsNA8AramrROl1rhi28suKndZ7uFlvatqMTQyJqzKex8CraTOVGeDP5GsS9GyFp7XX2fDPGAqFN6ygvdsketEEnV4xcdZA98FEoNnBrYcjPWdIZDF8IyEV7Jo3YLoohabc6UY5sU+K810Li1uyBC7x1DFSm34u2GRmKc4b/2APnBb5/dbS5lK/ErcKSPiWQ7O0Pxs5sns5vHiMtU2k7KV6rc6Mxh86hCU9XBn5H3t9sBoXuWbMPaWqe3/hdcONtd4MkhkvBVP02p1yjmSKevOpxNwJto+634BkaY0ovSQBVidH71fzZsCImOjsIYlZMC6d5fCZxau/sbZv+pJRLBu41SEjH93zSOsTjXWymdtNe1jJCynX50F9p7mWSdNapPTeivPAyUaLV7kV5zxvEZ8sJm4fqnTq4CZ6h2XT45ocd/7+lCUsv2IJNRXhbhrxnM3qEtB0FuBUYl1iw8oH1bJeBlwSM92wA2IPN1jMA/izIqwDswT9VtpnA5RJrtQAAAABJRU5ErkJggg==\" /></wgraph></div>",
+       "mime": "x-application/wolfram-language-html"
+      }
+     ],
+     "id": "291a8af1-bfa6-4aec-85b0-ac74950a5ff7"
+    },
+    {
+     "items": [
+      {
+       "data": "<pre><span class=\"wl-message\">Set::write</span>: Tag Times in _Photon (CRLB_X) is Protected.</pre>",
+       "mime": "x-application/wolfram-language-html"
+      }
+     ],
+     "id": "ad92da2f-0e39-4e8b-a515-ccd6cf04ddb1"
+    },
+    {
+     "items": [
+      {
+       "data": "<div class=\"wexpr\"><wgraph class=\"resizable\" style=\"width:59.4px;height:23.4px;\" aspect-ratio=\"0.393939\" tabIndex=\"-1\"><img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGMAAAAnCAIAAACUkGG4AAAA0XpUWHRSYXcgcHJvZmlsZSB0eXBlIGV4aWYAAHjabU9tbsUgDPvPKXaEkIADx8l7pdJusOPPfGhapxk1NiZOIY2vzzt9TGiWVKo3dECI0kvXoGiysTlLX3UBds7y00/qxw9a9VdgHP/19B2btf0ZJLqFzT9QWzmBM8h0+zn2/nX6NVp7DLrjXjgXltJ+rv7/3lxRkb2wFhV3dOqWKEmoKtVx4w2wMeNSKW/ygDtj8NlhMYMTOvzZPRKMxjWfYPODBbmuqoxmrlhnQdX1oto98znfa3NcOh2ZKC0AAAAJcEhZcwAACxMAAAsTAQCanBgAAAA8dEVYdFNvZnR3YXJlAENyZWF0ZWQgd2l0aCB0aGUgV29sZnJhbSBMYW5ndWFnZSA6IHd3dy53b2xmcmFtLmNvbVyipoUAAAAhdEVYdENyZWF0aW9uIFRpbWUAMjAyNjowNTowMiAxMToyMDoxOV+O8eAAAAHySURBVGiB7VpbjsMgDDSrPUCOmiPk5uwHW0TBNoMDaVKYjyqi1C/sgeA67z0tAPhlR51ztgg658LD0AUotZgNBuUT0U8v6fQyd3SSjtYiyWciZV6fawp5tBZJPl99Z9CxEGIVUOFApsV7b9MrqSil9aw+VsFJ+BdSl/pqibUWVbDy6zmVmkjvJJoNhpHwyXqieChpkWYqWhD5JKehJL8eKXZ/YQ09s874LmYrMb2ywogefZSnSukjmJX1YZw6SSmL/ozOIqWA8AB6Huu6OwNGe0CxEKMr9QwismZkaFBL/Dmuy4ZqyFBGz3IhVHXH0mC1lHPMBz32NJB5UbGQTZYnvgyONrvzeeqLsSKFgolUVtWPwAWMsXIKxSPJ+yNYOYViRQrF/8nzOI6PmnFf7Pu+bRstnsKxqg/FihSKi25d7ommN/x5c6q1G9YtUo97AWrdyiqRSq9vOsbi4rC6BOVXYMhm4Smpb4JnliVSesMyG8wmKxfqUlusVFQ1QPq2nIl3w6AuFhv76Ey5ROkDcV0DqQfD9hdKmYpj47phRkZn1eiDVcvYmdKFus507EqcbPBA1Xeruz29O6v/6kywhp+n8K2zdZNVGvcjumHGvQ883SrNLnNbTKFzeudpSY4trYz/pJnwBmLet5lWrEihmLGObPgDTDO8RNT6dzwAAAAASUVORK5CYII=\" /></wgraph></div>",
+       "mime": "x-application/wolfram-language-html"
+      }
+     ],
+     "id": "8d0024cd-4fdd-4fc2-971a-438dd286b812"
+    },
+    {
+     "items": [
+      {
+       "data": "<pre><span class=\"wl-message\">Set::write</span>: Tag Times in _Background (CRLB_X) is Protected.</pre>",
+       "mime": "x-application/wolfram-language-html"
+      }
+     ],
+     "id": "fc8e3240-e718-4976-b41c-ca49face568c"
+    },
+    {
+     "items": [
+      {
+       "data": "<div class=\"wexpr\"><wgraph class=\"resizable\" style=\"width:187.8px;height:24.0px;\" aspect-ratio=\"0.127796\" tabIndex=\"-1\"><img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAATkAAAAoCAIAAAAKfhosAAAA0XpUWHRSYXcgcHJvZmlsZSB0eXBlIGV4aWYAAHjadU9LrgMhDNtzih4hCeDAcWiHkXqDHr/mUz2xeB5NbEwclNA/7zs8BkwlpOwFFRAi1VStURRZWKxSZ52IdSs9/WA7pI1W/rtA3/7z9B2LmTsHie2XxgvUMe3AHhRt+drW+bn7rZVyDLrbPbGXkfRbS/85RzdkqCfWZOKOSl0CJQnZJDtuvAA2Ki6T9CJ3uDMGHx2xjeCAdT+7e0CkcY0V4vgRGznPaowqvzbvGlW1i2r1jHW+crJcP8FsR+kAAAAJcEhZcwAACxMAAAsTAQCanBgAAAA8dEVYdFNvZnR3YXJlAENyZWF0ZWQgd2l0aCB0aGUgV29sZnJhbSBMYW5ndWFnZSA6IHd3dy53b2xmcmFtLmNvbVyipoUAAAAhdEVYdENyZWF0aW9uIFRpbWUAMjAyNjowNTowMiAxMToyMDoxOV+O8eAAAAOuSURBVHic7ZxbdusgDEXtrgwgQ80QMnPuh2+9iF4IENg0Z3+1KUbicZCgMXtKaQMA3J7H1Q4A8HfY9/34YUQI/AmvEYBazine8OBBrD9FK6LFfd9TSiEqFRsFrYJVCdRGiJXRngzXaueaN3rJ9HOtJ52RJ9aZWA4xNDw456il1kpzc4o1/JBCIUN788mxNPkAjetnXnODrTnToF8beVWaBIiVlJKRBvcYNWp45M+chXraH9h3oJ+/PRbhk02UgNPKKbatstuPwrlcRbsf58CGT+Iq4nRIPByzP+SVky4g/hzrXL7aiSXPTuHDoJkuBge705wubY4OKbpB6tTOJG3rm9lLYrVaM89BcTaBe1L0cDO14Z/PhpN+Bdp/5UMp9o+xQDzIk5pPeb0NA8Af1NSidbrWDFt4+YNH6zzdLba0LaMTXSJqPH4VW6HNVF4JbyZfg7h1wyWtvc6eb8ZYILRpHWXFLtmDNujkEyNWbSQH3jLFBqYWhvycJZ3O8IWAfGjPpBHpouiSttWJMmRXJc57zSVemz1wgVvHQGX6rWjJyFCcM/wjBz4X+P7V0aYqXompwiV9SiDR2++MHdk8nd88Rlqk0jIp/lRnojGHzqEJD1cGfkPe/9kMct2zZm/S1Ey/+E3wytt2g8SHKmeKdptDrtFMEU9c9ZgbgZao+2vwDI0xpS8JAEWJ0f3q+bNRixjobCdItWJYSNmGmftAjNqZvV2nPyidJQNzDeLS9juftA7xWBebqW3a86cMl85n+dDXNLea/fMsNB+ywGRKtMLLRIlW24vynjeIj5YTkofiTh3cBM/QLDp8892O/97ShKUXLMGiIrwtQ96zGT1CWkYBbgXGJRasfOB6lovAlziM92wAWIPF1jMAvhbEVQDWAFoFYA3+nwO/3+9L3QAAyLxer+fzuWG/CsAqIAcGYA2gVQDWAPcDfzshX4gX34kFsSCufjX7lGs7QQjQ6sVc+55DiEqX+4bgokCrQ8hfSgxU4yBh+8W2Z9Q+CzrBfvXbqRUbfw0dup0DtDoP4z0+fjZDChsXCPFqNUNaSfFkiF+aIzZKu0EChAOtjkK76eYUiRigcgnxe7p4hVpJbshwRvOfuFdsb7EM6AH71amIE9r+sKgBsaR2gVDtjldcHciiAOaAuDqQW11nQ3LmZqWJMRxMAHH1pviPkWsPnKsuoLzVrZxfDuLqVJxfEjKu2Gy+jLP2hqrJt3KCIujreWBmgx6QAwOwBtAqAGuArAyANfgHzfyZvDbT9ZgAAAAASUVORK5CYII=\" /></wgraph></div>",
+       "mime": "x-application/wolfram-language-html"
+      }
+     ],
+     "id": "bd593f82-1fc6-4ebe-b5d7-ae7a92cef130"
+    }
+   ],
+   "metadata": {},
+   "executionSummary": {
+    "timing": {
+     "startTime": 1777742282030,
+     "endTime": 1777742419861
+    },
+    "executionOrder": 50,
+    "success": true
+   }
+  },
+  {
+   "kind": 1,
+   "value": "Unlike lateral position, depth $z_c$ is encoded purely through the expansion of the PSF variance $\\sigma(z_c)^2$. Applying the chain rule to the forward model, the sensitivity of the signal to depth changes is:\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n$$ \\mathbb{E} (\\hat{\\theta} - \\theta) = 0 $$\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\nWhere the derivative of the blur variance with respect to depth is:\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n$$g: \\theta \\to \\chi, \\quad \\theta \\mapsto \\mathbb{E} \\left[f\\right]$$\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\nSubstituting the Gaussian PSF derivative, we find:\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n$$ \\mathbb{E} (\\hat{\\theta} - \\theta) = 0 $$\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\nIntegrating this squared gradient over the sensor plane yields the continuous Fisher Information $I_{zz}$. Just as with the lateral coordinates, we evaluate this integral at the two physical limits.\r\nYou can see the analytical results in the cell below. The first 2 equations represent the fisher information for signal and background regimes specifically, and the final 2 are the lower bounds for the same.",
+   "languageId": "markdown",
+   "outputs": [],
+   "metadata": {},
+   "executionSummary": {}
+  },
+  {
+   "kind": 2,
+   "value": "(* ========================================== *)\r\n(* 7. Evaluating FIM Limits for Depth (InfoZZ)*)\r\n(* ========================================== *)\r\n\r\n(* The squared gradient for Z *)\r\ngradZSquared = FullSimplify[gradG[zc]^2];\r\n\r\n(* Limit 1: Photon-Noise Limited (\\[Beta] - 0) *)\r\nintegrandZPhoton = FullSimplify[gradZSquared / (Nphotons * psf[x, y, xc, yc, zc])];\r\n\r\nInfoZZPhoton = Integrate[\r\n  integrandZPhoton, \r\n  {x, -Infinity, Infinity}, {y, -Infinity, Infinity},\r\n  Assumptions - {\\[Sigma]0  0, zR  0, Nphotons  0, zc \\[Element] Reals}\r\n]\r\n\r\n(* Limit 2: Background-Noise Limited (\\[Beta] dominates) *)\r\nintegrandZBackground = FullSimplify[gradZSquared / \\[Beta]];\r\n\r\nInfoZZBackground = Integrate[\r\n  integrandZBackground, \r\n  {x, -Infinity, Infinity}, {y, -Infinity, Infinity},\r\n  Assumptions - {\\[Sigma]0  0, zR  0, Nphotons  0, \\[Beta]  0, zc \\[Element] Reals}\r\n]\r\n\r\n(* ========================================== *)\r\n(* 8. The Depth CRLBs                         *)\r\n(* ========================================== *)\r\n\r\ncrlbZPhoton = FullSimplify[1 / InfoZZPhoton]\r\ncrlbZBackground = FullSimplify[1 / InfoZZBackground]",
+   "languageId": "wolfram",
+   "outputs": [
+    {
+     "items": [
+      {
+       "data": "<div class=\"wexpr\"><wgraph class=\"resizable\" style=\"width:56.4px;height:25.2px;\" aspect-ratio=\"0.446809\" tabIndex=\"-1\"><img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAF4AAAAqCAIAAAC1A3vuAAAA03pUWHRSYXcgcHJvZmlsZSB0eXBlIGV4aWYAAHjabU9ZbgUhDPvnFD1CFnDgOLw3jNQb9Pg1i1pNVSMSY+IQ0vj6vNPHhKmkXKKiAULklpt1kiobO6u0FRfKOHf61NMyznOnVH4vcAz6euqBna3+aSS2ic8XyD0fw2nktnU9D75OvfVaH43ufi+cgSXXn9H/P3sYCjQyYzaJQCOviZQJxaQEbrwBFiouk/xmHoigDTErvE/jhI14Vo8Ep3DNL/jc8M5cVjRalau7ezAqh7mo75r5nW/t7Vyb2rBxBQAAAAlwSFlzAAALEwAACxMBAJqcGAAAADx0RVh0U29mdHdhcmUAQ3JlYXRlZCB3aXRoIHRoZSBXb2xmcmFtIExhbmd1YWdlIDogd3d3LndvbGZyYW0uY29tXKKmhQAAACF0RVh0Q3JlYXRpb24gVGltZQAyMDI2OjA1OjAyIDExOjM3OjE3GIHN7gAAAeNJREFUaIHtWlGWwyAIlLw9QI6aI+Tm7kd2XSpgEUxiusxXa9AhUyQGCjnnFODwdbcDUwAAjg84UJabnJkIAJBzprtnvDTlF3gKpJRSSwMA7L3h8YE3P4+OR+zgkaW6fK0/s4DqkmgazjnrBcKW1dLHJTxYGdMYLMZ0WYnorQP0qrQ4dfhPGla5anXWphBg+moQEx97k87CrlNLStR2mDrD3j/9WrDQ+V1gZ7UH3xKxluwsKTNiA6UQFC9RU31mA2SefNSOBT+WQlNQvo5l0j/geh+FkqvsVtD/tN7TMHuOpDjCjTWuBhuWEjVrhpOrYfGUkjHFFPoPfgWLFwURIY2IT94RTkTUiAhpRIQ0In7ONfu+3+rGRNi2bV3XFGm4gdhQIkIaEf+uo6B8gUr6qDHXIuAXtulmFqnCrS8qnLuhuly5gKXLE5U0Y2uAw9HLorydK3LNwNpFu05eFUylUpbSmdOlGV7TkerhGhapecDCIo2/j4GXapQvWRbJUnPDXT+SRRp/H8PM0rYcC/uG8vQxPCz6g4kTtx35Gt3LNtju3RkwnmucfYyE+jm4yaNhKdP1XDbY07Cnj2FmoTbnaaR95j2xduF0O968RYQ0IlTSTPUvACX8SSCiRsQj8+s1iKgR8Q3DPJtT+VQhFQAAAABJRU5ErkJggg==\" /></wgraph></div>",
+       "mime": "x-application/wolfram-language-html"
+      }
+     ],
+     "id": "ce655f52-6cf9-4177-ac17-9b98c0616d15"
+    },
+    {
+     "items": [
+      {
+       "data": "<div class=\"wexpr\"><wgraph class=\"resizable\" style=\"width:187.8px;height:25.2px;\" aspect-ratio=\"0.134185\" tabIndex=\"-1\"><img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAATkAAAAqCAIAAABHtrsnAAAA0XpUWHRSYXcgcHJvZmlsZSB0eXBlIGV4aWYAAHjadU9BDgMhCLz7ij4BQQd9jrurSX/Q5xfUptkmHSOM4wAh9NdzhIeDI4WUtaACZEg1VW5GCi2sHKnOOCF1s3jXwyz0dzMpfz/Qt37cdcXKXH4aEe9JPsG4pF2wGwkvPe6Bx/ZzK+XWaLQxsZeh9Fkr/nmLMjKiJouJSRXVeAlGLSEzZcXACZgx4mJKp+UOVSuDukOaFzq4693dA8SEy1cQv5BmOc/IVhrtNBHRGStfpi+Pr/MGq+hccsL2Mm0AAAAJcEhZcwAACxMAAAsTAQCanBgAAAA8dEVYdFNvZnR3YXJlAENyZWF0ZWQgd2l0aCB0aGUgV29sZnJhbSBMYW5ndWFnZSA6IHd3dy53b2xmcmFtLmNvbVyipoUAAAAhdEVYdENyZWF0aW9uIFRpbWUAMjAyNjowNTowMiAxMTozNzozOc0PgmsAAAPHSURBVHic7ZxbduMgDIZhTheQpWYJ3bnnwTM+VDcLEAaa/3tKUywJkBA4tvJxHAkAsDxfsw0AY8k5nx96FuV1hHwyf2YbAAaScz6OozM21hHy4SBWx3IlkymExMY6Qj4cxGoLOecrCAOjcVBgnzntMSG5YIQlHwvOq7+chwP15GpcXohA7QSxGkaZRohTnv8qvySNeZYuXZyI1RRpLbn2xHL4rboqIRxDCHCCWG3kDDDudpd/83xSfihb8gYXWkuuyDBGs5+Yl5RYqhVitwTN4LwaieiR9pe3Tiy2FK8Sj4g2PMYagkpcYsjKAvpBXm2n3LtOx86NU4xBuMaCvDoH/23k2hvO/tgQA6k/MzdYAjwgr0bifDTnTMhiY/Kl0VJTfau9bN+szhDC2yBoQ8A4hgGnBEPBHhiAPUCsArAH2LYBsAfIqwDsAWIVgD1ArAKwB/9+X/3+/p5qBgBA5v1+v16vhHtLAOwC9sAA7AFiFYA9wPPAAMRQ+0h2LYhVMJ/mR6mfqWMqFusw3uzvf1NS7BdiFewKqbOxgpaQl4c1jcPPq53juM7L3HMtadbeUCziYZqT6jM/YdQWheuvQKBp/BGrWqnIWhZ3jq0pJ2jcOIvlQvuFjCDwVcRcYGsJLAmiKeX9+hL/19N/vMa5FL97LsKdradaavPh2VMlL5WxaisQVxF/cWfe3v6SCycnAWLPVVVQvA1AZIrToKn21FjRxsFvUnIMyK0ZRKbmOrb2ZI6SKFbrplbq0d+RWwsTcwwiypgaUYvW0nMQrY0gbXw0jd57S6XchgngF2rRog26eIn2mewS/aW6iJ2ij1YhmkSi8aqfwi/RPJUL4d0U709ozsFN0vrrHPlmjAWCWN6TUf05MyRva5NOvrFXBCFWx+0riBZ/S6c9fCFIbJmvtbMT0STRjE4v93dTdAjNJC7NnrjAo2NgZPq1NO9jY80QobH6zGmzKl+JW4UpY0og2dtvjJ3ZPEF7G5C3qknEcpO03XvnRuMZOqfGswWLwq+I3ge2j14BpjGxxp8X3DWP//hVcOFtp0FiQ5Uxt3qbU67RTRFPXvWoG4FxinPimRrDpackgNsQ+3EfOCnrEJEiJjrbCCJTTAuHWfCSKOV3GkREmf6kVB4horyTmJT0H+X82sVuaof28irDpOtaPvU13a1G9EPbN6K08DZRQUvGzRh5g/hs+cDm4fakDhbBMzWbTt/zZsc/t/TA0gu2YNMgXJYhzwOPniFtRwGWAvMSC1Y+MJ/tMvAUg/GuOQB7sNl6BsDHgrwKwB78BcG+0qxS8hbOAAAAAElFTkSuQmCC\" /></wgraph></div>",
+       "mime": "x-application/wolfram-language-html"
+      }
+     ],
+     "id": "d04bf479-21f2-44ad-ac6d-8d69a1007c52"
+    },
+    {
+     "items": [
+      {
+       "data": "<div class=\"wexpr\"><wgraph class=\"resizable\" style=\"width:56.4px;height:24.0px;\" aspect-ratio=\"0.425532\" tabIndex=\"-1\"><img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAF4AAAAoCAIAAAD4y9rlAAAA0XpUWHRSYXcgcHJvZmlsZSB0eXBlIGV4aWYAAHjabU/bDQMhDPtnio6QBzgwDtcDqRt0/IaHWiHV6OJg7ByE9n718BgQphCTZRSAHLHEItWbTAuLmcqsE6ntMz71IDvE1aX0O8AO8HXqhsWeOweRrEbHH7zXuAN7kMrSua79tf1Scz4G9don9oUp5u/V/+/VBAls0WsUMkPxPgdvnZCEkqHjCbiRcQvFp3ODmcdgw6F1BAek2eluAerCPZ6g44NW5zSreJR9VVW1WYvcri/PeM4HtdFcdtjGM38AAAAJcEhZcwAACxMAAAsTAQCanBgAAAA8dEVYdFNvZnR3YXJlAENyZWF0ZWQgd2l0aCB0aGUgV29sZnJhbSBMYW5ndWFnZSA6IHd3dy53b2xmcmFtLmNvbVyipoUAAAAhdEVYdENyZWF0aW9uIFRpbWUAMjAyNjowNTowMiAxMTozNzozOc0PgmsAAAHfSURBVGiB7VlRtoQgCNXOLKCltoR27vtwnq9BIAS1msf9mNNpjIuEKN2YUgoODK+rHZiNGGO+OM2JpdWiwpUM3eNqFpQxxphSEi4UaWh0aHJlAkuTJ6LQZG65UZ0rarSyCKczo9aoI4uaKtfAJmBJKaG8cmeGh6ZjXDKKtaNlIUuObP49Ha8JDahwR//AzVNXmClRLNRIyYSbXpImNNR7q7kt+SLPiEEVTb+gao9HuFizyA8mRlx25CszbJ1qWardqxiA8lxDFX+5hXISSb8QspTH5Vw66MsweNt5s+yY7ShLPWZcjKR73hO7UKPbYxuFR8NDQ0IUmlxHRrvSF/Yi4FlD4pH1dQ48a0h4aEi8j3z7vl/qxo2wbdu6rsFrDQNfUCQ8NCT+nQ6FAm1iPWtIraZ/aB7XUlAbEQwNpTQe73ec/H3iWPdcC/h7rj93AdqLwjLc1GTzghm4CQYz34Yp0aYmOnWg/leuCP2FRqJpoGMKQS2PHC8C9sWbEgzQb+O1TcZhuyK01M83AX2Kv3lKhI6kvg3zOW5RhD6yBlyjCXKfesTngh1LoTmKHpT6YYF8g2vdChlp2KIIWU/DQnWFkWLUog1Tg8NncVUYD8bO+6EijBDeKJDw0JD45hVhxA/rgptPiZ0nXwAAAABJRU5ErkJggg==\" /></wgraph></div>",
+       "mime": "x-application/wolfram-language-html"
+      }
+     ],
+     "id": "0eaec20e-43b2-47d1-8a7f-c5f0b4a64ce1"
+    },
+    {
+     "items": [
+      {
+       "data": "<div class=\"wexpr\"><wgraph class=\"resizable\" style=\"width:187.8px;height:24.0px;\" aspect-ratio=\"0.127796\" tabIndex=\"-1\"><img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAATkAAAAoCAIAAAAKfhosAAAA0npUWHRSYXcgcHJvZmlsZSB0eXBlIGV4aWYAAHjadU9BbgQhDLvzij4hJMGB57A7jLQ/6PNrBqqKQz2a2Jg4KGl8f+70NaFZkpeoaIAQ3rxpp6iysDhLe+oDa1vl00+6Q7nTKn8XGNt/nX5gMXPnINH90nyB2nwH9iDT5ee+zq/dr73WY9Dd7wd7GfHftfI/ZwtFQQ5ndZUINOqaKEkoKiVw4w2wMeNS8Td5IIIxxOywPoMTOuLsHglG45or2PxhnVyeqoxmft3MgtVN9KK/euY6P3MKXEHx6G+fAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAPHRFWHRTb2Z0d2FyZQBDcmVhdGVkIHdpdGggdGhlIFdvbGZyYW0gTGFuZ3VhZ2UgOiB3d3cud29sZnJhbS5jb21coqaFAAAAIXRFWHRDcmVhdGlvbiBUaW1lADIwMjY6MDU6MDIgMTE6Mzc6NDD7kqwIAAADvElEQVR4nO2cW3brIAxFzV0ZQIaaIWTm7kduvaheCBDGOGd/pQ6WxOMgcB3Svu8bAODyPGYHAMBNSCkdn0ekQGgVzCel1Da4D3kMXR5yL2LA+bfhHjdoFazLIZh+bUR5+ZTpnDg0j/96jDodT7w9kLmRNHtPKV2nDUWak+o5j1qqvOz7vu97Z4NrHv9oNf3S42mbPazvTd5B49qZW27wdc4waJa6aEqTAPHSL8iiU16vh/hdT/0D2w70c+++CB9sogScXpo3z8eKN1/9ciMPckMxDu6jiFgH+yI3TnYCJJ7PPJfPdmJJ3hDi3kALSaud1g7+kDZHgxTDIDa1oWN738xWEs1q1Tw6xVkFHkkxwo0NDGLK6BrRi1bSsxGtVZDWPppH77Ol3G5DB/AbNbVojS7eon0mq0Q+bznjFMdoFWJIRI2fP8VaaCOVG+HVFJ9PaIODh6TV19nyzRgTBIm8J6P6c2ZI3tY6nVyxZwRBq+PWFcSLv6QzHj4RbGyar42zEzEkMYzOUe6vpjggtJC4NbvjAreOgcr0e2lex8aGIUK1es5usypfiUuFKW1KINnbH4yd2TyiLQqy6Jooloekrd47Fxrn0Nk1niVYFH5H9DmwvfUKCI2ZNf484ENz/8Xvghtv2w2SGKqCKfptTrlGNUU8edXjbgTGLs6Jp2uMIT0lARQl9uc58KbMQ8SKmOjsIIhNMS18LmoTIXHKnzSIiDb9SSnfQkSNThLSpv9Tzu9drKa2ac/vMkI67uVdX1PdasRxaI+NKC+8TJRoSbsZLW8Qny1PWDwUd+rgIni6ZtHuOz/s+PeWTph6wRIsKsLLMuR94NE9pK0owKVAv8SCmQ/MZ7kMPCXg4e/uAwBCWGw+A+BrQV4FYA2gVQDW4P9z4Pf7PTUMAIDM6/V6Pp8b9qsArALWwACsAbQKwBrgHMObE/K++3WMfDPIq3cmZQdE3MDIlwOtjmXuzxhCtHEdI18OtNpC/pvDQDUOEnbIy6t+IyljRCRfC/arN+dkoX7QznyBUHuAVsMwfqZHDjfihY3zgbhZzZFWknvfWA4vuqsywjGMACfQaiPaQTbH+Ob5JP+Ql+QFDrSS3JERjBY/CW9TtFRrxC4JmsF+NRJxRNoXi4NYLKmdD1S74+UaaxCVOMWQmQX0g7zazqVOq7Fz45RgINdYkFfn4H+MXPvA2a8NUUj9mbkhEuABeTUS56s5xgmazWdt1h5AJR66WXu0p2iEl4FoQ0A7hoFBCYaCNTAAawCtArAGWLYBsAY/oNnSqLk5heoAAAAASUVORK5CYII=\" /></wgraph></div>",
+       "mime": "x-application/wolfram-language-html"
+      }
+     ],
+     "id": "a119e506-04f9-408d-972a-749fd9829070"
+    }
+   ],
+   "metadata": {},
+   "executionSummary": {
+    "timing": {
+     "startTime": 1777743420145,
+     "endTime": 1777743460280
+    },
+    "executionOrder": 66,
+    "success": true
+   }
+  },
+  {
+   "kind": 1,
+   "value": "# Conclusion (CMOS)\r\n\r\nEvaluation of the depth Cramér-Rao Lower Bounds ($CRLB_Z$) reveals two fundamental properties of standard optical CMOS tracking:\r\n\r\n1. The Depth Dead Zone: Both the photon-limited and background-limited bounds for depth contain a $z_c^2$ term in the denominator. As the target approaches the exact focal plane ($z_c \\to 0$), the CRLB approaches infinity. Because a standard PSF expands symmetrically on either side of the focal plane, its spatial derivative at the focus is zero. This fundamental blindness to focal-plane depth variations motivates the need for PSF engineering to break axial symmetry.\r\n\r\n2. Asymptotic Scaling Laws: Outside of the dead zone, the lower bounds for both lateral ($x, y$) and axial ($z$) localization follow strict asymptotic scaling laws with respect to the total photon count $N$ (where $N \\propto \\text{Integration Time } T$):\r\n\r\n    * Photon-Noise Limit: When the signal dominates the background ($\\beta \\to 0$), the localization variance scales as $\\mathcal{O}(N^{-1})$. Consequently, the Standard Error (the absolute tracking precision) scales as $\\mathcal{O}(N^{-1/2})$.\r\n    \r\n    * Background-Noise Limit: When the background noise dominates, the variance scales as $\\mathcal{O}(N^{-2})$, causing the Standard Error to scale as $\\mathcal{O}(N^{-1})$.These standard scaling limits serve as the baseline against which novel neuromorphic and differential sensors must be compared.",
+   "languageId": "markdown",
+   "outputs": [],
+   "metadata": {},
+   "executionSummary": {}
+  },
+  {
+   "kind": 1,
+   "value": "# The Event Sensor\r\n\r\nThe event sensor operates on a fundamentally different principle than traditional image sensors. Whereas traditional sensors capture charge induced by incoming photons into electron wells and integrate that charge over a fixed exposure window to create a final image, event sensors—often referred to as Dynamic Vision Sensors (DVS)—respond to local changes in light at discrete moments in continuous time with logarithmic sensitivity. \r\nDVS pixels fire asynchronously whenever the absolute change in log-intensity crosses a set hardware threshold $\\mathcal{T}$. *(Note: In practice, there are typically two distinct thresholds—one for a positive change (\"ON\" event) and one for a negative change (\"OFF\" event). For this derivation, we assume a symmetrical threshold value for simplicity. This assumption does not change the underlying mathematics or the asymptotic result).*\r\n\r\nThe most information a single event spike can provide is the spatial coordinate $(x,y)$, the microsecond timestamp $t$, and the polarity (direction) of the intensity change. Taken on its own, a single event offers very little structural information. However, when integrated (binned) over a period of time, Shah et al. (2024) have shown that the resulting event frame mathematically approximates the logarithmic difference of intensity over that same period:\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n$$ \\mathbb{E} (\\hat{\\theta} - \\theta) = 0 $$\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\nIn their work, they define a Fisher Information Matrix (FIM) for a sensor with a specific set of parameters and derive the Cramér-Rao lower bound for 3D tracking. Here, we follow their statistical framework, extending it to a generalized analytical result to evaluate the scaling limits for any integration time $T$ for which their Normal-approximation assumptions hold.\r\n",
+   "languageId": "markdown",
+   "outputs": [],
+   "metadata": {},
+   "executionSummary": {}
+  },
+  {
+   "kind": 1,
+   "value": "# Event Frame Generation and Intensity Parameters\r\n\r\nTo rigorously define the Fisher Information for the event sensor, we must first establish the parameters that govern the generation of the event frame $E$. Let $I(x,y,t)$ be the continuous instantaneous photon flux incident on pixel $(x,y)$ at time $t$.Because event sensors trigger on temporal contrast, the measurement depends not only on the static position of the target but on its dynamics over a macroscopic integration interval $\\tau$. Following the Shah et al. framework, we parameterize the changing light signal during this interval using two macroscopic intensity variables:$\\mu$ (Base Intensity): The expected number of photons arriving at the pixel during the interval if the target were stationary. This serves as the baseline illumination and is mathematically identical to our noiseless static CMOS forward model: $\\mu = g_s(x,y \\mid \\theta)$.$\\nu$ (Intensity Difference): The expected change in the photon count over the interval $\\tau$ due strictly to the target's motion or state change. This is driven by the temporal derivative of the forward model.The Statistical Challenge and Hardware QuantizationIf standard image capture is a Poisson process dependent on $\\mu$, an event frame represents the logarithmic difference between two such processes. If we subdivide the integration interval $\\tau$ into $K$ infinitesimally small steps, the total change in log-intensity $\\Delta L$ is the sum of the changes across each step. That is:\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n$$ \\mathbb{E} (\\hat{\\theta} - \\theta) = 0 $$\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\nWhere $\\lambda_k$ is the expected photon flux at step $k$. Assuming the time interval between steps is sufficiently small, the ratio $\\frac{\\lambda_k}{\\lambda_{k-1}}$ is near unity. Applying the first-order Taylor expansion $\\log(x) \\approx x - 1$, we obtain:\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n$$g: \\theta \\to \\chi, \\quad \\theta \\mapsto \\mathbb{E} \\left[f\\right]$$\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\nWe define the change in expected intensity during a step as $\\Delta \\lambda_k = \\lambda_k - \\lambda_{k-1}$. Because photon arrivals follow a Poisson process, $\\Delta \\lambda_k$ is treated as a Poisson random variable. Assuming the base intensity $\\lambda_{k-1}$ is large and relatively constant over the step, the sum of these independent random variables converges.However, unlike an ideal continuous sensor, a physical Event Camera only registers an event when the log-intensity change crosses a discrete hardware threshold $\\mathcal{T}$. This discrete triggering introduces quantization noise into the accumulated measurement. Modeling this quantization error as a uniform distribution bounded by the threshold yields a static variance term $\\sigma_q^2 \\approx \\mathcal{T}^2 / T$.Transitioning back to our macroscopic parameters $\\mu$ and $\\nu$, and incorporating this hardware quantization limit, the accumulated log-intensity change $\\Delta L$ over the entire interval $\\tau$ can be approximated as a Normal distribution:\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n$$ \\mathbb{E} (\\hat{\\theta} - \\theta) = 0 $$\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\nThis Normal approximation provides a tractable Probability Density Function (PDF) that encapsulates the signal-dependent Poisson noise of the incident light, the differential nature of the event sensor, and the discrete quantization noise of the hardware.",
+   "languageId": "markdown",
+   "outputs": [],
+   "metadata": {},
+   "executionSummary": {}
+  },
+  {
+   "kind": 2,
+   "value": "(* ========================================== *)\r\n(* 9. The Event Sensor Statistical Model      *)\r\n(* ========================================== *)\r\n\r\n(* Define the Macroscopic Parameters for the Normal Approximation *)\r\n(* \\[Mu] is the base expected photon count over the interval *)\r\n(* \\[Nu] is the expected difference in photon count over the interval *)\r\n(* \\[Sigma]q^2 is the static quantization noise from the hardware threshold *)\r\n\r\neventMean = \\[Nu] / \\[Mu];\r\neventVariance = \\[Nu] / \\[Mu]^2 + \\[Sigma]q^2;\r\neventStdDev = Sqrt[eventVariance];\r\n\r\n(* Define the Event Distribution *)\r\neventDist = NormalDistribution[eventMean, eventStdDev];\r\n\r\n(* Calculate the Log-Likelihood of observing a specific log-intensity change 'deltaL' *)\r\neventLogLikelihood = FullSimplify[Log[PDF[eventDist, deltaL]], Assumptions -> {\\[Nu] > 0, \\[Mu] > 0, \\[Sigma]q > 0}];\r\n\r\n\r\n(* ========================================== *)\r\n(* 10. The Event Sensor Scores                *)\r\n(* ========================================== *)\r\n\r\n(* The Score is the sensitivity of the log-likelihood to changes in the parameters *)\r\nscoreMu = FullSimplify[D[eventLogLikelihood, \\[Mu]]];\r\nscoreNu = FullSimplify[D[eventLogLikelihood, \\[Nu]]];\r\n\r\n\r\n(* ========================================== *)\r\n(* 11. The Event Sensor Fisher Information    *)\r\n(* ========================================== *)\r\n\r\n(* The FIM is the Expected Value of the outer product of the Scores *)\r\n(* Because deltaL follows eventDist, we use Mathematica's Expectation function *)\r\n\r\nFIMEventMuMu = FullSimplify[Expectation[scoreMu^2, deltaL \\[Distributed] eventDist], Assumptions -> {\\[Nu] > 0, \\[Mu] > 0, \\[Sigma]q > 0}]\r\nFIMEventNuNu = FullSimplify[Expectation[scoreNu^2, deltaL \\[Distributed] eventDist], Assumptions -> {\\[Nu] > 0, \\[Mu] > 0, \\[Sigma]q > 0}]\r\nFIMEventMuNu = FullSimplify[Expectation[scoreMu * scoreNu, deltaL \\[Distributed] eventDist], Assumptions -> {\\[Nu] > 0, \\[Mu] > 0, \\[Sigma]q > 0}]\r\n\r\n(* Assemble the 2x2 Macroscopic Fisher Information Matrix *)\r\neventMacroscopicFIM = {\r\n  {FIMEventMuMu, FIMEventMuNu},\r\n  {FIMEventMuNu, FIMEventNuNu}\r\n};\r\n\r\nMatrixForm[eventMacroscopicFIM]",
+   "languageId": "wolfram",
+   "outputs": [
+    {
+     "items": [
+      {
+       "data": "<div class=\"wexpr\"><wgraph class=\"resizable\" style=\"width:71.4px;height:25.2px;\" aspect-ratio=\"0.352941\" tabIndex=\"-1\"><img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAHcAAAAqCAIAAAAGS1P0AAAA0XpUWHRSYXcgcHJvZmlsZSB0eXBlIGV4aWYAAHjabU/bDQMhDPtnio4ACTgwDu1xUjfo+HUAtbqqloiN84CE8Xqe4eaQFEMuVtGASOSWm3SKGhcWp9hmnDDbuXT1w2z0e6dVvgmM7d+vvmGx1J9BUZZQf4Fa827Yg1SWn/aD910vvdbLoLOfE/vDMdfP1//f1QQFyTJjFq6KRl0DJQlFYjGceAAsTDgk5gd5wIxtMK/Q7o0OGXatHgFK4/AV1A+0k8uMwtakOnVlFE1yUK8aX+cNrNtcapHTL/UAAAAJcEhZcwAACxMAAAsTAQCanBgAAAA8dEVYdFNvZnR3YXJlAENyZWF0ZWQgd2l0aCB0aGUgV29sZnJhbSBMYW5ndWFnZSA6IHd3dy53b2xmcmFtLmNvbVyipoUAAAAhdEVYdENyZWF0aW9uIFRpbWUAMjAyNjowNTowMiAxMzowODoyMVKTQLcAAAHsSURBVGiB7ZpbmoMgDIVlvi7ApboEd8482KEWBE4ICZfhf7ItjeEQAmKMtXZbCPNCGhljrovEkBhjhhgwpC9ldhIK/CDmrLVDKJilVl+odvIqI7ZGCeRaTlLt5FW+oOpo/iB5o0OtmPDsWGtj/UXzMlViJFs1QUjiNJ9Y9sbBfbwuSIEJJhnwp1jLtD/3X8G+mIDwe8ROyCeWr4APBdKPxJgnOLG/43sk99Gbl1k7j3zlZZdZmkwrIU96SFkPeVlaYm/ebfHQ4FvoBGj1KyAxVOFMpMK3UABnv/SgcpVN+1Yj0Jip+X6dNeXtw1x7931io5Z3pm3+lUDOmazlWAP0qWTBYUKV+5lVjmqTq6uk0QTWmdyCz38PQB1WLGuwVNbg/VRynmdTN+bkOI5937eVl3VYGUODpbIGUmdy00M6CytXuasiDeUqi/ubFMRsYcboqkhDv8pCqlKg4DZqgdyqygLvIGv16+qESLnKorBSgOlNW5RfB5dXCiA39rK+e1WD3Cn2Kj7djO9MKES4cFE7RR3RjMoFhQ0x5quywCFkDP6snKzKAqfBU8k0VRY4HT37DVdlgQOtfvdrvgTTVFngpFSWCCtEl7rOpEucdFhnchqkVO5q8enKGSqyS81Y+61HqnRhZQwNho+1IfgFElPCgU9N8IAAAAAASUVORK5CYII=\" /></wgraph></div>",
+       "mime": "x-application/wolfram-language-html"
+      }
+     ],
+     "id": "f9d73180-abf9-4997-bf9a-62153131c46a"
+    },
+    {
+     "items": [
+      {
+       "data": "<div class=\"wexpr\"><wgraph class=\"resizable\" style=\"width:63.6px;height:25.2px;\" aspect-ratio=\"0.396226\" tabIndex=\"-1\"><img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGoAAAAqCAIAAADUG1msAAAA0HpUWHRSYXcgcHJvZmlsZSB0eXBlIGV4aWYAAHjabU/bDQMhDPtnio6QBzgwDncHUjfo+A0PVb2qloiNcQKE9nr28BgQphCTZRSAHLHEItVFpoXFTGXWCdR9xnc/yD7g6lb6amjbP+6+YbHkn0EkS+i4wbXG3bAHqSyf94XHzkvN+Tao1z6xH0wxf57+f68mSGCLXqOQGYrrHFw6IQklQ8cJeJBxCcXTucHM22AjoXU0Dkize7oFqBvX+IKOBa3OaVbxVladOnsVZblcr8z4zhvpO1yTz6K71wAAAAlwSFlzAAALEwAACxMBAJqcGAAAADx0RVh0U29mdHdhcmUAQ3JlYXRlZCB3aXRoIHRoZSBXb2xmcmFtIExhbmd1YWdlIDogd3d3LndvbGZyYW0uY29tXKKmhQAAACF0RVh0Q3JlYXRpb24gVGltZQAyMDI2OjA1OjAyIDEzOjA4OjIxUpNAtwAAAeBJREFUaIHtWVu2wyAIlJ4uIEvNErJz70d6PFYD4fLQaJ0vm+qoOAQiEGMMC1K8ey/AHQBwNpRCueR5aRifDwCIMeo9DOOZ3HxWryaM58t5T32Kp7RyE3P+UzsmCyh43sV/aYkaaqvlmvD72S7kzsuZgzAuPbwYiPGI+YuxqX02AOCSGSrUz2meRpH31LVfkoSREzMWQ9LPQuY0j33oIHaSzlBjx9vhrudUgKu+QsYBORDx3qz4G4NrvlrYNTR78+YXgBNFvyJv3hAkB4HxslBmRQR/ETpuJyrSjNQ/PefkIc/yBRn8VHnLPPlXhzdmMF9HB5rBeTtiBvV1xDKfCst8KnzyvuM4ui5jMOz7vm1bWKFDieW8KizzqTB/pU0MTm1Aqz7x5b5gIuzSWMmDXURzSnRjOK93vbEGcy6V+ZpdwHnXGzHIb1ysnMUQTjUz7F6PM9116PCuOgrgWm+87BYYN8fX5pMtFKtd0d2If/PqV8A3U2snH1U/4VynMy1gmbjoq5G96o1i3ISO/5rDqhppwtAAlPrEG1BWIwcCaj6Pw+dUI83hmjygkTcoNKJ8/eXtNvVGMSwjL3Ms1kGsSvOaMh9jfLQ9Fg8y34hh5CfSCxqaLTxIfSNieO30xVKfCn9NV4yZHSx1qAAAAABJRU5ErkJggg==\" /></wgraph></div>",
+       "mime": "x-application/wolfram-language-html"
+      }
+     ],
+     "id": "4c98ea8d-ac49-4cfe-9f04-c52b5ce2d888"
+    },
+    {
+     "items": [
+      {
+       "data": "<div class=\"wexpr\"><wgraph class=\"resizable\" style=\"width:73.2px;height:25.2px;\" aspect-ratio=\"0.344262\" tabIndex=\"-1\"><img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAHoAAAAqCAIAAADztdhEAAAA0XpUWHRSYXcgcHJvZmlsZSB0eXBlIGV4aWYAAHjabU/bDQMhDPtnio4QEnBgHNrjpG7Q8WseanVVLV3sc5wAob+eZ7gNaJSQshdUQIhUU9VGUWRhcZQ664S33YtXP+huxEYrfxvo279ffcdiLT+LRJewcQK1pT2wF5kuP+4D7zuvrZTLorOdE/vCksrn6v//zRUZ0RNrUnFHpS6BkoSskh0nHgCDEYdKepA73DkGHwlrY3BAu1/TPcBoHOMJNj5YI+dZlaPRbOrCqnQO6pUZz3kD6sVclYi8PmwAAAAJcEhZcwAACxMAAAsTAQCanBgAAAA8dEVYdFNvZnR3YXJlAENyZWF0ZWQgd2l0aCB0aGUgV29sZnJhbSBMYW5ndWFnZSA6IHd3dy53b2xmcmFtLmNvbVyipoUAAAAhdEVYdENyZWF0aW9uIFRpbWUAMjAyNjowNTowMiAxMzowODoyMsuaEQ0AAAHTSURBVGiB7ZpBEoMgDEWh4wE8qkfw5nThlHFAMED4hJS3sg4G+E0CaKxzzixQfNgtWmvZbfbA/mC3k7HJL/cUWGudc+2RXWqHWe6re16bPeAaZKmd7t7NErCd4HKOwI5zLjXlvnJLdvZOWuchyR38V3RvpYwjY43Yb348j4vYdZGKPBsR36fYidkoja7owPtpe7+pxzM2g0f8z/t9L26v3O3zEVh3xn4lZDaSd3t4RxyEpEk7S6pfugUhlMnNSxykeAsVtGy0yuQunVXgfY2y1hEsla+mgm2cb+/vZ/Z574Ph9QsJ+dHTbzCvllMN/vQQPwrNcsuJMw9/uInKJ0PIKKDZuwXy754IZnk3lCU3lM08HZPuGeY8T+SAVHIcx77vZuVuMCuZQFlyQxn5RlAHRe9+Qd4N+zoMrh4ZXPgwFnz1iLjCBwN8izKqeoQ+QVXefQGuHuEvfJgIcPVIl8IHypjo80xVFuSbUbr2kzdPCSF1eI4/leXtxBbo1Mtd7Uf6qkfo8CSTUvmUVY/QGXnMUVM9QkfiqXK66hE6rUvl/bpUHTXVI3Qq5W53PYpAvF2nnkLGkLZ9t3Aq5R64dk29bIKWo7m2a4+wTGElEyjTO91cfAGVzXeoKJ5vcwAAAABJRU5ErkJggg==\" /></wgraph></div>",
+       "mime": "x-application/wolfram-language-html"
+      }
+     ],
+     "id": "32d23ecc-b96c-456d-934e-9d3538be29b6"
+    },
+    {
+     "items": [
+      {
+       "data": "<div class=\"wexpr\"><wgraph class=\"resizable\" style=\"width:114.6px;height:46.2px;\" aspect-ratio=\"0.403141\" tabIndex=\"-1\"><img src=\"data:image/png;base64,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\" /></wgraph></div>",
+       "mime": "x-application/wolfram-language-html"
+      }
+     ],
+     "id": "2f225c25-b532-4dba-90ad-7e14fd8c27eb"
+    }
+   ],
+   "metadata": {},
+   "executionSummary": {
+    "timing": {
+     "startTime": 1777748897021,
+     "endTime": 1777748902422
+    },
+    "executionOrder": 187,
+    "success": true
+   }
+  },
+  {
+   "kind": 1,
+   "value": "To formally prove the temporal scaling limits of the Event Sensor, we must map our macroscopic FIM back to the spatial parameter space using the chain rule (the Jacobian).Let $\\theta_i$ be an arbitrary spatial parameter (e.g., $x_c$ or $z_c$). The Spatial Fisher Information $I_{\\theta_i}$ is the quadratic form of the macroscopic FIM projected through the Jacobian vector $J$:\r\n\r\n\r\n\r\n$$ \\mathbb{E} (\\hat{\\theta} - \\theta) = 0 $$\r\n\r\n\r\n\r\nWe evaluate this with respect to the integration time $T$. We define the base photon arrival rate as $\\bar{\\mu}$ and the differential photon rate as $\\bar{\\nu}$. Consequently, the macroscopic parameters and their spatial derivatives scale linearly with time:\r\n\r\n\r\n\r\n$$g: \\theta \\to \\chi, \\quad \\theta \\mapsto \\mathbb{E} \\left[f\\right]$$\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n$$ \\mathbb{E} (\\hat{\\theta} - \\theta) = 0 $$\r\n\r\n\r\n\r\nBy substituting these temporal relationships into $I_{\\theta_i}$, we yield a continuous analytical expression for the spatial Fisher Information purely as a function of the integration interval $T$. We then evaluate the limits of this expression at the extrema ($T \\to 0$ and $T \\to \\infty$) to definitively establish the bounding behavior of the sensor.\r\n",
+   "languageId": "markdown",
+   "mime": "text/markdown",
+   "outputs": [],
+   "metadata": {},
+   "executionSummary": {}
+  },
+  {
+   "kind": 2,
+   "value": "(* ========================================== *)\r\n(* 12. Spatial FIM and Asymptotic Scaling     *)\r\n(* ========================================== *)\r\n\r\n\\[Mu]Sub = \\[Mu]Rate * T;\r\n\\[Nu]Sub = \\[Nu]Rate * T;\r\n\r\nd\\[Mu] = d\\[Mu]Rate * T;\r\nd\\[Nu] = d\\[Nu]Rate * T;\r\njacobian = {d\\[Mu], d\\[Nu]};\r\n\r\ntemporalFIM = FullSimplify[eventMacroscopicFIM /. {\\[Mu] -> \\[Mu]Sub, \\[Nu] -> \\[Nu]Sub, \\[Sigma]q -> \\[Sigma]q}];\r\n\r\nspatialInfo = FullSimplify[jacobian . temporalFIM . jacobian];\r\n\r\n(* ========================================== *)\r\n(* 13. Evaluating the Extreme Limits          *)\r\n(* ========================================== *)\r\n\r\n(* --- Extreme 1: The Short Integration Limit (T -> 0) --- *)\r\nshortIntegrationProof = FullSimplify[\r\n  Limit[spatialInfo, T -> 0, Assumptions -> {\\[Mu]Rate > 0, \\[Nu]Rate > 0, \\[Sigma]q > 0}]\r\n]\r\n\r\n(* --- Extreme 2: The Long Integration Limit (T -> Infinity) --- *)\r\nlongIntegrationProof = FullSimplify[\r\n  Limit[spatialInfo, T -> Infinity, Assumptions -> {\\[Mu]Rate > 0, \\[Nu]Rate > 0, \\[Sigma]q > 0}]\r\n]",
+   "languageId": "wolfram",
+   "outputs": [
+    {
+     "items": [
+      {
+       "data": "<div class=\"wexpr\"><wgraph class=\"resizable\" style=\"width:129.0px;height:22.8px;\" aspect-ratio=\"0.176744\" tabIndex=\"-1\"><img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAANcAAAAmCAIAAADY0ZleAAAA0npUWHRSYXcgcHJvZmlsZSB0eXBlIGV4aWYAAHjabU9BjgMhDLvzin1CSIIDz6EdRuoP+vw1A9rVVLVEbIwTII3360w/E5oleYmKBgjhzZt2iioLi7O0q144Yp/lu58U2++0yv8BxvYfdz92XuvHINElbN5Abb4b9iDT5ee+9o+d117rbdDZzwv7weL17+nf9xaKghzO6ioRaNQ1UZJQVErgxBNgMONQ8Sd5IIJtiJmwPhsndMQ9PRKMxjG/YHPBOrlcVdmazaiN3M3pHPRXZn7nF7QPXGs5jGWxAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAPHRFWHRTb2Z0d2FyZQBDcmVhdGVkIHdpdGggdGhlIFdvbGZyYW0gTGFuZ3VhZ2UgOiB3d3cud29sZnJhbS5jb21coqaFAAAAIXRFWHRDcmVhdGlvbiBUaW1lADIwMjY6MDU6MDIgMTM6MzE6NDKnaIPRAAACXklEQVR4nO2bUZLDIAiGk509QI/aI/Tm7oM7jgOKoqlg8n8PnbQxgoiINp4hhAMAU36tFQDP4jzPeJGHvx8jZcATOc8zhMCnX50XJkcGA8B6tfSvPCNHnx0Qkxu6WcOwFA9CiwpM1nwn6wkl+a2CF042Lz37jf52JZRLnJd+e+sVRXStTvhUQupqak+iRfrKo4g8NFVdfpVQmZ74UfxxcUMWd1kIgYuIJeNnfqvthcReggwBYvHUMJWltCP1EqGTFK1n0hCTLqvVSRjfqUmt4npwkf2JeWfJZUL5rf50p1P0MuvZdpnA7H4hN30aNOlWMR7UGItD3xM6n4yrWGA9J12Wo9ipUbl8UbOeGmYGlonQo88FYT2BdiyMATy/IHeFZ1NKUVOUzAWxpJxik8oXCJXJM27+bM16hg1Z3GU9FNp/bXp+FT61GuA2DWnS39LCjCyMAwA6UQ22p4xL4Bm8zQDsgRcCe+CFwB54IbDnf7/w8/mYqgGeyPv9fr1eB9bIwAOYkYE98EJgD87gTVH7+/iZagyDWDhO/von1JgBXjiOk453osYMW87IAxOQ6tUj3T/xysIe1PDGfl5IXgMePkhxuTJ7qeGK/bxQFUKa3UPCavrKwy0PY/n7rTNngr6nxi7s54Uy2qhA/JWfuihW21wQ8BNGJmrswsZe2BNgSJ/Fi+KPPeJU6gWvB94csqsXDidki0+aOTzw5pAtd2pmkvHaOaMeoWMSPavhhP3WVqQbhEN6eQEeb8g64BBXAE25NVWFxG6ZGv7ZzwsFdt+weCxbzsjgZiB4AHsQC4E9f8zM+mxatq8uAAAAAElFTkSuQmCC\" /></wgraph></div>",
+       "mime": "x-application/wolfram-language-html"
+      }
+     ],
+     "id": "70911375-b173-481c-ac80-3a1e2c21cf9c"
+    },
+    {
+     "items": [
+      {
+       "data": "<div class=\"wexpr\"><wgraph class=\"resizable\" style=\"width:123.0px;height:23.4px;\" aspect-ratio=\"0.190244\" tabIndex=\"-1\"><img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAM0AAAAnCAIAAAAjAVvaAAAA0npUWHRSYXcgcHJvZmlsZSB0eXBlIGV4aWYAAHjabU/RbQUhDPtnijdCSIID4/DuOKkbdPxnDtTqqloiNsYJkMb315VeE5oleYmKBgjhzZt2iioLi7O0u944zn2Wn37S2H6nVX4PMLb/fvqBxVr/DBJdwuYN1Oa7YQ8yXX7ua//eee21PgZd/bqxHyxef57+/95CUZDDWV0lAo26JkoSikoJXDgABjNOFT/IAxFsQ8yE9dk4oSOe6ZFgNM75BZsL1snlrsrWbEZt5G5O56S/MvM7H/Y6XJh9TmW3AAAACXBIWXMAAAsTAAALEwEAmpwYAAAAPHRFWHRTb2Z0d2FyZQBDcmVhdGVkIHdpdGggdGhlIFdvbGZyYW0gTGFuZ3VhZ2UgOiB3d3cud29sZnJhbS5jb21coqaFAAAAIXRFWHRDcmVhdGlvbiBUaW1lADIwMjY6MDU6MDIgMTM6MzE6NDKnaIPRAAACOElEQVR4nO2bW47DIAxFw2gWkKVmCdk588EIIWzeiSHmno+qbVJszMUQCsZaewDwMr+zHQDaMMa4N2EK+5nkDNCJMcZaSwfJNp15qQIWxCc1DePHTafKDjNhoIsldFtZwWgfmuKTuZNeYnQ2WD3/W8kWnWK0D/XxYU1UPQfQ4SAqq+h9NDf0H+mcMd/5QkNiRouww6W8q8KNYq2lJtyd7jW8VNZZFK+MjQxRxH3FmiLV2hcfMVqEjc8UV6c0SqrMiP51DV8r6gc1WT9BrrxTzCi91JrwJOMzt1EyjK6fUXX7buEvsT0+Rd/s4T2jj89mBOKzSKOENKxrNIma9aymhJGuM8VoXyG7xaecz1wSDt9EVzO/9QN/ytEon7s781PdqHABo3lS8ZnoqnCj1MDUv3UOK8OaXrF8yNVB6mvKjJsZpQPgaepOu/Q8MBf8jw4kgM6ABNAZkAA6AxL8r5/d9z3VDaCT67rO8zzwvAlkwLgJJIDOgAQ47zQK3dM3Us4jRS0I8tkShDsNVQKdDfHUX+aKFebYaNxs2tlSI6DH92Uo3uixkc6OF479dB8IYIvSKrJDq86iTcnFfX/ujd/QzH5/kIxYNJHaFkozq0kcE1KDQp21JobxYz+ZvbL0I7sxX6W2QhTqLGS1Yz/bolxnEdOP/WzLjusac49FvVTa4ih8xsnMvqPUlZqV13x51C2OsDeH56P0xZ9FWz2/1XLf8naEHcdNII82nW2SHj7HLnkbzEVbPgNr8gdkV4J60AJtVgAAAABJRU5ErkJggg==\" /></wgraph></div>",
+       "mime": "x-application/wolfram-language-html"
+      }
+     ],
+     "id": "4205a60e-1086-463d-830f-2a75857917e5"
+    }
+   ],
+   "metadata": {},
+   "executionSummary": {
+    "timing": {
+     "startTime": 1777750301909,
+     "endTime": 1777750302749
+    },
+    "executionOrder": 230,
+    "success": true
+   }
+  },
+  {
+   "kind": 1,
+   "value": "# Conclusion\r\n\r\nFundamental Limits and the Asynchronous ImperativeEvaluating the asymptotic extrema of the spatial Fisher Information formally establishes the fundamental bounds of the event sensor when treated as a frame-based integrating device.\r\n\r\n1. The Long-Integration Quantization Ceiling ($T \\to \\infty$): As the integration time approaches infinity, the Fisher Information asymptotically converges to a constant:\r\n\r\n$$ \\mathbb{E} (\\hat{\\theta} - \\theta) = 0 $$\r\n\r\nIn this regime, the baseline photon count ($\\bar{\\mu}T$) overwhelms the differential signal. The localization precision becomes entirely bottlenecked by the quantization noise $\\sigma_q^2$ of the hardware threshold. Consequently, the CRLB hits a hard, constant floor. Unlike a traditional CMOS sensor, which continuously improves its precision as $\\mathcal{O}(T^{-1})$ by integrating more light, the event sensor is physically limited by its differential capacity to a constant error bound in the worst case.\r\n\r\n2. The Short-Integration Physical Constraint ($T \\to 0$): Mathematically, as $T \\to 0$, the $T^2$ scaling of the spatial Jacobian precisely cancels the $T^{-2}$ scaling of the differential variance term, causing the spatial Fisher Information to evaluate to a second constant. However, this is strictly an analytical artifact. At extremely short integration times, the $\\Delta L$ log-intensity approximation no longer applies, as the assumption of a continuous, highly-populated baseline photon count collapses. Because the differential approximation is invalid in this photon-starved regime, the system must be evaluated by its underlying quantum arrivals. As formally established in the CMOS derivation, when evaluated via this fundamental integrating model, the lower bound is strictly limited to the standard $\\mathcal{O}(T^{-1})$ scaling.\r\n\r\n3. The Asynchronous Path Forward: We have formally shown that the fundamental limit of the event sensor, when treated as an integrating sensor by binning events over time, cannot exceed the performance of a traditional integrating sensor in the best case, and is physically limited by the differential capacity of the sensor to a constant floor in the worst case.A significant amount of existing research utilizes Dynamic Vision Sensors effectively as high-speed traditional cameras, compressing the event stream into familiar frame-based representations to leverage legacy computer vision algorithms. While these sensors are highly sensitive and practically advantageous for low-latency tasks, this derivation proves that sacrificing temporal information for a spatial frame guarantees sub-optimal localization. While it remains to be formally proven whether event sensors are fundamentally capable of meeting or exceeding conventional bounds under purely asynchronous paradigms, this derivation definitively establishes that achieving such performance will require the complete abandonment of frame-based localization methods.",
+   "languageId": "markdown",
+   "outputs": [],
+   "metadata": {},
+   "executionSummary": {}
+  },
+  {
+   "kind": 1,
+   "value": "",
+   "languageId": "markdown",
+   "outputs": [],
+   "metadata": {},
+   "executionSummary": {}
+  }
+ ]
+}

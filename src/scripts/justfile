@@ -14,6 +14,18 @@ mae-process *args:
 object-track *args:
     cd object-tracking-test && uv run main.py {{args}}
 
+split-recordings:
+  cd ./split-tracking-video/ && \
+  uv run  main.py ../../../data/raw/recording_2026-04-09_12-13-20_45cm.raw --config ../object-tracking-test/tests.yaml --start 43881578 --out ~/45cm && \
+  uv run  main.py ../../../data/raw/recording_2026-04-09_12-04-14_50cm.raw --config ../object-tracking-test/tests.yaml --start 37431836 --out ~/50cm && \
+  uv run  main.py ../../../data/raw/recording_2026-04-09_11-56-16_55cm.raw --config ../object-tracking-test/tests.yaml --start 010935559 --out ~/55cm && \
+  uv run  main.py ../../../data/raw/recording_2026-04-09_11-47-60.raw --config ../object-tracking-test/tests.yaml --start 0041806661 --out ~/60cm && \
+  uv run  main.py ../../../data/raw/recording_2026-04-09_11-41-09_65cm.raw --config ../object-tracking-test/tests.yaml --start 0037965148 --out ~/65cm && \
+  uv run  main.py ../../../data/raw/recording_2026-04-09_11-18-31_70cm.raw --config ../object-tracking-test/tests.yaml --start 038315138 --out ~/70cm && \
+  uv run  main.py ../../../data/raw/recording_2026-04-09_11-13-45_75cm.raw --config ../object-tracking-test/tests.yaml --start 0 --out ~/75cm && \
+  uv run  main.py ../../../data/raw/recording_2026-04-09_11-06-10_80cm.raw --config ../object-tracking-test/tests.yaml --start 0 --out ~/80cm && \
+  uv run  main.py ../../../data/raw/recording_2026-04-09_10-57-28_85cm.raw --config ../object-tracking-test/tests.yaml --start 0 --out ~/85cm
+
 # Run all pipelines sequentially
 run-all:
     just object-track

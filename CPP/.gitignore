@@ -1,33 +1,5 @@
-# ignore the data folder
-data
-maths
-*.parquet
-*.mp4
-
-
-# Python-generated files
-__pycache__/
-*.py[oc]
-build/
-dist/
-wheels/
-*.egg-info
-
-# Virtual environments
-.venv
-
-# Research Data Files
-*.h5
-*.dat
-*.raw
-*.tif
-
-# Logs
-lightning_logs/
-multirun/
-outputs/
-# C++
-# ===
+#C++
+#===
 # Prerequisites
 *.d
 
@@ -70,4 +42,3 @@ outputs/
 # debug information files
 *.dwo
 
-.ccls-cache
