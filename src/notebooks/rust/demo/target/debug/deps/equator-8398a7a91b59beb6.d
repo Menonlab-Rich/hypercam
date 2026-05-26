@@ -1,0 +1,12 @@
+/mnt/storage/code/hypercam/src/notebooks/rust/demo/target/debug/deps/equator-8398a7a91b59beb6.d: /home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/equator-0.4.2/src/lib.rs /home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/equator-0.4.2/src/decompose.rs /home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/equator-0.4.2/src/spec.rs /home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/equator-0.4.2/src/spec/by_val.rs /home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/equator-0.4.2/src/spec/debug.rs /home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/equator-0.4.2/src/spec/sized.rs /home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/equator-0.4.2/src/structures.rs /home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/equator-0.4.2/src/traits.rs
+
+/mnt/storage/code/hypercam/src/notebooks/rust/demo/target/debug/deps/libequator-8398a7a91b59beb6.rmeta: /home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/equator-0.4.2/src/lib.rs /home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/equator-0.4.2/src/decompose.rs /home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/equator-0.4.2/src/spec.rs /home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/equator-0.4.2/src/spec/by_val.rs /home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/equator-0.4.2/src/spec/debug.rs /home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/equator-0.4.2/src/spec/sized.rs /home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/equator-0.4.2/src/structures.rs /home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/equator-0.4.2/src/traits.rs
+
+/home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/equator-0.4.2/src/lib.rs:
+/home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/equator-0.4.2/src/decompose.rs:
+/home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/equator-0.4.2/src/spec.rs:
+/home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/equator-0.4.2/src/spec/by_val.rs:
+/home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/equator-0.4.2/src/spec/debug.rs:
+/home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/equator-0.4.2/src/spec/sized.rs:
+/home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/equator-0.4.2/src/structures.rs:
+/home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/equator-0.4.2/src/traits.rs:

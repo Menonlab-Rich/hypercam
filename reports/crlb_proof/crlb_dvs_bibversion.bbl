@@ -1,0 +1,17 @@
+\begin{thebibliography}{1}
+
+\bibitem{gerwe2003cramer}
+David~R. Gerwe and Paul~S. Idell.
+\newblock Cram{\'e}r--rao analysis of orientation estimation: viewing geometry
+  influences on the information conveyed by target features.
+\newblock {\em J. Opt. Soc. Am. A}, 20(5):797--816, 2003.
+
+\bibitem{shah2024codedevents}
+Sachin Shah, Matthew~A. Chan, Haoming Cai, Jingxi Chen, Sakshum Kulshrestha,
+  Chahat~Deep Singh, Yiannis Aloimonos, and Christopher~A. Metzler.
+\newblock Codedevents: Optimal point-spread-function engineering for
+  3d-tracking with event cameras.
+\newblock In {\em Proceedings of the IEEE/CVF Conference on Computer Vision and
+  Pattern Recognition (CVPR)}, pages 25265--25275, 2024.
+
+\end{thebibliography}

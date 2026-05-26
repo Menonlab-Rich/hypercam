@@ -1,0 +1,12 @@
+/mnt/storage/code/hypercam/src/notebooks/rust/demo/target/debug/deps/libloading-4439395cbbb36874.d: /home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libloading-0.8.9/src/lib.rs /home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libloading-0.8.9/src/changelog.rs /home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libloading-0.8.9/src/error.rs /home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libloading-0.8.9/src/os/mod.rs /home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libloading-0.8.9/src/os/unix/mod.rs /home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libloading-0.8.9/src/os/unix/consts.rs /home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libloading-0.8.9/src/safe.rs /home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libloading-0.8.9/src/util.rs
+
+/mnt/storage/code/hypercam/src/notebooks/rust/demo/target/debug/deps/liblibloading-4439395cbbb36874.rmeta: /home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libloading-0.8.9/src/lib.rs /home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libloading-0.8.9/src/changelog.rs /home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libloading-0.8.9/src/error.rs /home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libloading-0.8.9/src/os/mod.rs /home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libloading-0.8.9/src/os/unix/mod.rs /home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libloading-0.8.9/src/os/unix/consts.rs /home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libloading-0.8.9/src/safe.rs /home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libloading-0.8.9/src/util.rs
+
+/home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libloading-0.8.9/src/lib.rs:
+/home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libloading-0.8.9/src/changelog.rs:
+/home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libloading-0.8.9/src/error.rs:
+/home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libloading-0.8.9/src/os/mod.rs:
+/home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libloading-0.8.9/src/os/unix/mod.rs:
+/home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libloading-0.8.9/src/os/unix/consts.rs:
+/home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libloading-0.8.9/src/safe.rs:
+/home/rich/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libloading-0.8.9/src/util.rs:

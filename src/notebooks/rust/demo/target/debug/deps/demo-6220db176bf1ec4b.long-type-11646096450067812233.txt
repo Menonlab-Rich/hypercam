@@ -1,0 +1,1 @@
+traits::ErgoTensor<(M, N), E, D, T>: std::convert::From<dfdx::tensor::Tensor<(N, M), E, D, T>>

@@ -1,0 +1,4 @@
+dfdx::tensor::Tensor<(dfdx::shapes::Const<10>, usize, dfdx::shapes::Const<2>), f32, dfdx::tensor::Cuda>
+dfdx::tensor::Tensor<(dfdx::shapes::Const<15>, usize, dfdx::shapes::Const<2>), f32, dfdx::tensor::Cuda>
+dfdx::tensor::Tensor<(dfdx::shapes::Const<10>, usize, dfdx::shapes::Const<2>), f32, dfdx::tensor::Cuda>: dfdx::tensor_ops::TryMul<dfdx::tensor::Tensor<(dfdx::shapes::Const<15>, usize, dfdx::shapes::Const<2>), f32, dfdx::tensor::Cuda>>
+std::ops::Mul<dfdx::tensor::Tensor<(dfdx::shapes::Const<15>, usize, dfdx::shapes::Const<2>), f32, dfdx::tensor::Cuda>>

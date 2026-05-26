@@ -1,0 +1,2 @@
+<dfdx::tensor::Tensor<S1, E, D, T> as dfdx::tensor_ops::TryMatMul<dfdx::tensor::Tensor<S2, E, D, T>>>::Output
+<dfdx::tensor::Tensor<S1, E, D, T> as dfdx::tensor_ops::TryMatMul<dfdx::tensor::Tensor<S2, E, D, T>>>::Output: dfdx::shapes::Shape

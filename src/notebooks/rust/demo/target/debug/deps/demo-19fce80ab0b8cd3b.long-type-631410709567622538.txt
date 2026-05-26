@@ -1,0 +1,1 @@
+traits::ErgoTensor<(dfdx::shapes::Const<10>, usize, usize), f32, dfdx::tensor::Cuda, dfdx::tensor::NoneTape>
