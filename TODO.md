@@ -1,3 +1,0 @@
-# Project Tasks
-
-- [ ] Initial setup

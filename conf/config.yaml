@@ -1,5 +1,0 @@
-defaults:
-  - _self_
-
-project_name: ${hydra:job.name}
-seed: 42
