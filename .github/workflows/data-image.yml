@@ -1,0 +1,101 @@
+# ==============================================================================
+# Author:        Richard G. Baird
+# Date Modified: 2026-09-24
+# Notice:        This file was authored or modified with the assistance of
+#                Kilo (GLM, z-ai/glm-5.3-flash).
+# ==============================================================================
+#
+# Data-image pipeline: keeps the untracked experiment data (data/, too large
+# for GitHub) version-locked to commits via container images on GHCR.
+#
+# - On EVERY push (i.e. every commit) the "build-and-publish" job runs on the
+#   lab's self-hosted runner — the only machine that has the data — and
+#   builds/publishes ghcr.io/<owner>/<repo>-data tagged with the commit SHA.
+#   Rebuilding even when data/ is unchanged keeps the commit -> image mapping
+#   dense and unambiguous; unchanged layers are content-addressed, so the
+#   registry stores them only once.
+# - Pull requests can't ship the data, so they run only the "validate" job,
+#   which syntax-checks the scripts and builds the Containerfile against an
+#   empty fixture.
+#
+# Runner prerequisites (lab workstation):
+#   - podman + fuse-overlayfs installed
+#   - a GitHub Actions runner registered with the "self-hosted" label
+#   - the experiment data present on the machine and pointed at by the repo
+#     variable HYPERCAM_DATA_DIR (absolute path); leave unset to use
+#     data/ inside the runner's checkout.
+#
+# Consuming a snapshot elsewhere: scripts/data_image_mount.sh
+
+name: data-image
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: data-image-${{ github.ref }}
+  # Never cancel: every commit must end up with its own published snapshot,
+  # otherwise the commit -> image mapping has holes.
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  validate:
+    name: Validate data-image pipeline (no data needed)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install podman
+        run: sudo apt-get update && sudo apt-get install -y podman
+
+      - name: Syntax-check the data scripts
+        run: |
+          bash -n scripts/data_image_build.sh
+          bash -n scripts/data_image_mount.sh
+
+      - name: Build the Containerfile against an empty data fixture
+        run: |
+          fixture=$(mktemp -d)
+          mkdir -p "$fixture/raw" "$fixture/cad_models" "$fixture/results"
+          printf 'fixture\n' >"$fixture/raw/.keep"
+          printf 'fixture\n' >"$fixture/cad_models/.keep"
+          printf 'fixture\n' >"$fixture/results/.keep"
+          podman build \
+            --build-arg SOURCE_COMMIT=0000000000000000000000000000000000000000 \
+            --build-arg SOURCE_URL=https://github.com/example/hypercam \
+            --build-arg BUILT_AT=1970-01-01T00:00:00Z \
+            -t hypercam-data:fixture \
+            -f Containerfile "$fixture"
+          podman image inspect hypercam-data:fixture \
+            --format 'fixture image OK (labels: {{ index .Config.Labels "org.opencontainers.image.revision" }})'
+
+  build-and-publish:
+    name: Build and publish data image (lab runner)
+    # Pull requests have no access to the lab data; only pushes (commits) and
+    # manual dispatch reach the lab runner.
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: self-hosted
+    env:
+      HYPERCAM_DATA_IMAGE: ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}-data
+      HYPERCAM_DATA_DIR: ${{ vars.HYPERCAM_DATA_DIR }}
+      GHCR_USER: ${{ github.actor }}
+      GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The data lives ONLY on this machine and is untracked/ignored by
+          # git; the default checkout clean step (git clean -ffdx) would
+          # delete it. Never clean this workspace.
+          clean: false
+
+      - name: Build and publish the data image for this commit
+        run: scripts/data_image_build.sh --sha "${GITHUB_SHA}"
+
+      - name: Prune dangling build layers
+        run: podman image prune -f
