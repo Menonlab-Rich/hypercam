@@ -1,20 +1,33 @@
 [project]
 name = "hypercam"
 version = "0.1.0"
-description = "Add your description here"
+description = "Wavelength-resolved activity correlation from Prophesee EVT3 event-camera recordings"
 readme = "README.md"
-requires-python = "==3.12.*"
+requires-python = ">=3.12"
 dependencies = [
-    "numba>=0.65.0",
-    "pandas>=3.0.2",
-    "polars>=1.39.3",
-    "scikit-learn>=1.8.0",
-    "scipy>=1.17.1",
+    "matplotlib>=3.11.2",
+    "openevt>=1.0.4",
+    "pint>=0.26.1",
+    "python-pptx>=1.0.2",
+    "scipy>=1.14.0",
+    "seaborn>=0.13.2",
 ]
 
-[tool.uv.workspace]
-members = [
-    "src/scripts/mae_processing",
-    "src/scripts/split-tracking-video",
-    "src/notebooks",
+[project.scripts]
+hypercam = "hypercam:main"
+hypercam-chopper = "hypercam.analysis.spectral_correlation_chopper:main"
+hypercam-sweep = "hypercam.analysis.duration_sweep:main"
+hypercam-sweep-frames = "hypercam.analysis.sweep_frames:main"
+hypercam-compare = "hypercam.analysis.comparison_figure:main"
+
+[build-system]
+requires = ["uv_build>=0.12.5,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
