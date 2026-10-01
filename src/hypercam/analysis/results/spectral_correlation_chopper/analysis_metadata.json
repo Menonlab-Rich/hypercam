@@ -1,0 +1,178 @@
+{
+  "method": "Pearson correlation of cropped, high-passed, temporally averaged EVT3 activity frames, restricted to pixels active in either frame of each pair",
+  "polarity": "both",
+  "transform": "log1p",
+  "accumulation_ms": 10,
+  "chopper": {
+    "wheel_rps": 960.0,
+    "wheel_windows": 12,
+    "wheel_radius_mm": 60.0,
+    "window_pitch_deg": 30.0,
+    "windows_per_diameter": 6,
+    "window_pass_frequency_hz": 11520.0,
+    "window_pass_period_us": 86.80555555555556,
+    "revolution_period_us": 1041.6666666666667,
+    "blade_edge_speed_mps": 361.91147369354417,
+    "fov_windows": 2,
+    "illumination_model": "Each pixel is chopped at window_pass_frequency_hz as the 12-window wheel sweeps past. The FoV holds 2 windows separated by single blade segments, i.e. whole 30 deg pitches apart, so the FoV-visible windows chop in phase (one pitch = one full window-pass period) while the chop phase sweeps a full cycle across the FoV: pixels half a pitch apart blink in antiphase, and windows across a full diameter (6 pitches) are phase-aligned. The FoV spans a whole number of pitches, so the aggregate transmitted flux is ~constant: a constant-flux spinning pattern, not a global strobe.",
+    "accumulation": {
+      "requested_ms": 10,
+      "align_revolutions": true,
+      "revolutions_per_frame": 10,
+      "effective_us": 10417
+    },
+    "trigger_stream": "not recorded during capture (the *_triggers.csv sidecars are empty); integration therefore relies on whole-revolution alignment at the nominal 960 rev/s"
+  },
+  "crop": {
+    "rows": [
+      0,
+      720
+    ],
+    "columns": [
+      0,
+      1280
+    ]
+  },
+  "highpass_px": 64,
+  "heatmap_scale": [
+    -1.0,
+    1.0
+  ],
+  "recordings": [
+    {
+      "label": "475",
+      "path": "/home/user/Projects/hypercam/data/raw/evt3_raw/960hz-chopper_475.raw",
+      "shape": [
+        720,
+        1280
+      ],
+      "events_total": 11526209,
+      "events_used": 11526209,
+      "accumulation_us": 10417,
+      "frames_averaged": 480,
+      "t_first_us": 0,
+      "t_last_us": 5000159,
+      "duration_us": 5000159
+    },
+    {
+      "label": "500",
+      "path": "/home/user/Projects/hypercam/data/raw/evt3_raw/960hz-chopper_500.raw",
+      "shape": [
+        720,
+        1280
+      ],
+      "events_total": 11585050,
+      "events_used": 11585050,
+      "accumulation_us": 10417,
+      "frames_averaged": 480,
+      "t_first_us": 0,
+      "t_last_us": 5000159,
+      "duration_us": 5000159
+    },
+    {
+      "label": "525",
+      "path": "/home/user/Projects/hypercam/data/raw/evt3_raw/960hz-chopper_525.raw",
+      "shape": [
+        720,
+        1280
+      ],
+      "events_total": 11624791,
+      "events_used": 11624791,
+      "accumulation_us": 10417,
+      "frames_averaged": 480,
+      "t_first_us": 0,
+      "t_last_us": 5000159,
+      "duration_us": 5000159
+    },
+    {
+      "label": "550",
+      "path": "/home/user/Projects/hypercam/data/raw/evt3_raw/960hz-chopper_550.raw",
+      "shape": [
+        720,
+        1280
+      ],
+      "events_total": 11734665,
+      "events_used": 11734665,
+      "accumulation_us": 10417,
+      "frames_averaged": 480,
+      "t_first_us": 0,
+      "t_last_us": 5000159,
+      "duration_us": 5000159
+    },
+    {
+      "label": "575",
+      "path": "/home/user/Projects/hypercam/data/raw/evt3_raw/960hz-chopper_575.raw",
+      "shape": [
+        720,
+        1280
+      ],
+      "events_total": 11650234,
+      "events_used": 11650234,
+      "accumulation_us": 10417,
+      "frames_averaged": 480,
+      "t_first_us": 0,
+      "t_last_us": 5000159,
+      "duration_us": 5000159
+    },
+    {
+      "label": "600",
+      "path": "/home/user/Projects/hypercam/data/raw/evt3_raw/960hz-chopper_600.raw",
+      "shape": [
+        720,
+        1280
+      ],
+      "events_total": 11520114,
+      "events_used": 11520114,
+      "accumulation_us": 10417,
+      "frames_averaged": 480,
+      "t_first_us": 0,
+      "t_last_us": 5000159,
+      "duration_us": 5000159
+    },
+    {
+      "label": "625",
+      "path": "/home/user/Projects/hypercam/data/raw/evt3_raw/960hz-chopper_625.raw",
+      "shape": [
+        720,
+        1280
+      ],
+      "events_total": 11454408,
+      "events_used": 11454408,
+      "accumulation_us": 10417,
+      "frames_averaged": 480,
+      "t_first_us": 0,
+      "t_last_us": 5000159,
+      "duration_us": 5000159
+    },
+    {
+      "label": "650",
+      "path": "/home/user/Projects/hypercam/data/raw/evt3_raw/960hz-chopper_650.raw",
+      "shape": [
+        720,
+        1280
+      ],
+      "events_total": 11465480,
+      "events_used": 11465480,
+      "accumulation_us": 10417,
+      "frames_averaged": 480,
+      "t_first_us": 0,
+      "t_last_us": 5000159,
+      "duration_us": 5000159
+    },
+    {
+      "label": "675",
+      "path": "/home/user/Projects/hypercam/data/raw/evt3_raw/960hz-chopper_675.raw",
+      "shape": [
+        720,
+        1280
+      ],
+      "events_total": 11876562,
+      "events_used": 11876562,
+      "accumulation_us": 10417,
+      "frames_averaged": 480,
+      "t_first_us": 0,
+      "t_last_us": 5000159,
+      "duration_us": 5000159
+    }
+  ]
+}

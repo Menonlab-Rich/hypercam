@@ -1,6 +1,6 @@
 # ==============================================================================
 # Author:        Richard G. Baird
-# Date Modified: 2026-09-24
+# Date Modified: 2026-10-01
 # Notice:        This file was authored or modified with the assistance of
 #                Kilo (GLM, z-ai/glm-5.3-flash).
 # ==============================================================================
@@ -343,10 +343,21 @@ def _png_chunk(kind: bytes, payload: bytes) -> bytes:
     )
 
 
-def write_grayscale_png(path: Path, frame: np.ndarray) -> None:
-    """Write a dependency-free 8-bit preview with robust intensity scaling."""
+def write_grayscale_png(
+    path: Path,
+    frame: np.ndarray,
+    low: float | None = None,
+    high: float | None = None,
+) -> None:
+    """Write a dependency-free 8-bit preview with robust intensity scaling.
+
+    ``low``/``high`` fix the display range so several frames can be compared
+    on one shared scale (e.g. early vs late segments of one recording); by
+    default a robust per-frame percentile range is used.
+    """
     values = np.asarray(frame, dtype=np.float64)
-    low, high = np.percentile(values, [0.1, 99.9])
+    if low is None or high is None:
+        low, high = np.percentile(values, [0.1, 99.9])
     if high <= low:
         high = low + 1.0
     image = np.clip((values - low) / (high - low), 0.0, 1.0)

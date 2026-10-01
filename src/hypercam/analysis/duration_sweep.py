@@ -1,6 +1,6 @@
 # ==============================================================================
 # Author:        Richard G. Baird
-# Date Modified: 2026-09-24
+# Date Modified: 2026-10-01
 # Notice:        This file was authored or modified with the assistance of
 #                Kilo (GLM, z-ai/glm-5.3-flash).
 # ==============================================================================
@@ -25,6 +25,18 @@ cross-color replicates give a standard error and Student-t significance for
 each pair. ``fraction_of_ceiling`` divides the measured cross-color r by that
 ceiling, so values near 1 mean the shared pattern is as reproducible as the
 recordings themselves.
+
+Known limitation (2026-10-01): the interleaved dealing hands every replicate a
+fixed phase offset of any display-periodic modulation (e.g. a 60 Hz LCD
+refresh). With signed polarity those offsets are systematic, so the replicate
+differences are dominated by phase rather than noise, the split-half
+reliability collapses to negative values, and ``fraction_of_ceiling`` becomes
+undefined exactly where it matters (visible in
+``results/spectral_correlation_fine_signed/duration_accumulation_sweep.csv``).
+The corrected diagnostic - disjoint contiguous time blocks, Spearman-Brown
+ceiling, and per-pair disattenuated correlations - lives in
+``source_identification.py`` and should be preferred for signed polarity on
+display-driven content.
 """
 
 from __future__ import annotations
@@ -115,6 +127,10 @@ class RecordingStream:
     interleaved replicates pools the windows whose index satisfies
     ``index % splits == k``, so every replicate spans the full cutoff interval
     and the replicates differ only by which windows they received.
+
+    See the module docstring for why this interleaved dealing breaks the
+    signed split-half reliability on display-periodic modulation, and
+    ``source_identification.py`` for the corrected contiguous-block diagnostic.
     """
 
     def __init__(
