@@ -113,7 +113,7 @@ directory holding the second.
 | Command | Purpose | Default input | Default output |
 |---|---|---|---|
 | `uv run hypercam` | main spectral-correlation analysis | `data/raw/evt3_raw/spectral_*.raw` | `results/spectral_correlation/` |
-| `uv run hypercam-chopper` | same pipeline for the 960 Hz chopper-wheel recordings | `data/raw/evt3_raw/spectral_*.raw` | `results/spectral_correlation_chopper/` |
+| `uv run hypercam-chopper` | chopper wheel variant: 12 windows at 960 rev/s → 11 520 Hz per-pixel chop; frames integrate whole revolutions | `data/raw/evt3_raw/960hz-chopper_*.raw` | `results/spectral_correlation_chopper/` |
 | `uv run hypercam-sweep` | duration × accumulation-interval sweep | `data/raw/evt3_raw/circle_*.raw` | `results/spectral_correlation/` |
 | `uv run hypercam-sweep-frames` | contact sheets of per-cell activity frames | same sweep grid | `results/spectral_correlation/sweep_frames/` |
 | `uv run hypercam-compare` | 3-panel poster of correlation matrices | `results/{no_filter,gaussian,spectral}_correlation` | `reports/figures/correlation_comparison_poster.svg` |

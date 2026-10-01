@@ -1,0 +1,232 @@
+<!DOCTYPE html><html>
+<head>
+<title></title>
+<style type="text/css">
+<!--
+.xflip {
+    -moz-transform: scaleX(-1);
+    -webkit-transform: scaleX(-1);
+    -o-transform: scaleX(-1);
+    transform: scaleX(-1);
+    filter: fliph;
+}
+.yflip {
+    -moz-transform: scaleY(-1);
+    -webkit-transform: scaleY(-1);
+    -o-transform: scaleY(-1);
+    transform: scaleY(-1);
+    filter: flipv;
+}
+.xyflip {
+    -moz-transform: scaleX(-1) scaleY(-1);
+    -webkit-transform: scaleX(-1) scaleY(-1);
+    -o-transform: scaleX(-1) scaleY(-1);
+    transform: scaleX(-1) scaleY(-1);
+    filter: fliph + flipv;
+}
+-->
+</style>
+</head>
+<body>
+<a name=1></a><img src="Shah_CodedEvents_Optimal_Point-Spread-Function_CVPR_2024_supplemental-1_1.png"/><br/>
+<img src="Shah_CodedEvents_Optimal_Point-Spread-Function_CVPR_2024_supplemental-1_2.png"/><br/>
+<img src="Shah_CodedEvents_Optimal_Point-Spread-Function_CVPR_2024_supplemental-1_3.png"/><br/>
+CodedEvents:&#160;Optimal&#160;Point-Spread-Function&#160;Engineering&#160;for<br/>
+3D-Tracking&#160;with&#160;Event&#160;Cameras<br/>
+Supplementary&#160;Material<br/>
+Figure&#160;2.&#160;Real-world&#160;3D&#160;tracking.&#160;Comparison&#160;between&#160;NAM<br/>
+and&#160;Open&#160;apertures&#160;for&#160;depth&#160;estimation&#160;at&#160;1000FPS.&#160;Error&#160;bars<br/>show&#160;the&#160;90%&#160;interquartile&#160;range.<br/>
+Figure&#160;1.&#160;Prototype.&#160;Top:&#160;The&#160;fabricated&#160;mask&#160;is&#160;placed&#160;at&#160;the<br/>
+S3.&#160;The&#160;Effects&#160;of&#160;Particle&#160;Speed<br/>
+aperture&#160;plane&#160;of&#160;an&#160;event&#160;camera&#160;with&#160;a&#160;50mm&#160;focal&#160;length&#160;lens.<br/>Bottom:&#160;Sample&#160;captured&#160;event&#160;frames&#160;for&#160;a&#160;point&#160;source.<br/>
+We&#160;have&#160;shown&#160;CRB&#160;depends&#160;on&#160;particle&#160;speed;&#160;a&#160;nat-<br/>
+ural&#160;question&#160;is&#160;does&#160;the&#160;optimal&#160;design&#160;change&#160;with&#160;re-<br/>
+spect&#160;to&#160;speed.&#160;We&#160;optimize&#160;our&#160;neural&#160;phase&#160;mask&#160;us-<br/>
+S1.&#160;Hardware&#160;Prototype<br/>
+ing&#160;the&#160;CRB&#160;objective&#160;function&#160;with&#160;fixed&#160;particle&#160;speeds—<br/>{50,&#160;100,&#160;500,&#160;1000}nm&#160;per&#160;time&#160;step.&#160;Our&#160;learned&#160;designs<br/>
+We&#160;performed&#160;a&#160;real-world&#160;experiment&#160;for&#160;tracking&#160;a&#160;point<br/>
+are&#160;shown&#160;in&#160;<a href="Shah_CodedEvents_Optimal_Point-Spread-Function_CVPR_2024_supplementals.html#2">Figure&#160;3.&#160;</a>When&#160;a&#160;particle&#160;moves&#160;quickly&#160;rela-<br/>
+light&#160;source&#160;at&#160;meter&#160;scale&#160;using&#160;a&#160;binary&#160;amplitude&#160;mask<br/>
+tive&#160;to&#160;the&#160;binned&#160;interval,&#160;the&#160;optimal&#160;design&#160;resembles&#160;the<br/>
+and&#160;a&#160;Prophessee&#160;EVK3&#160;event&#160;camera.&#160;Specifically,&#160;we<br/>
+Fisher&#160;phase&#160;pattern&#160;found&#160;for&#160;traditional&#160;CMOS&#160;sensors.<br/>
+fabricated&#160;the&#160;NAM&#160;mask&#160;at&#160;20mm&#160;diameter&#160;scale&#160;on&#160;a<br/>
+One&#160;can&#160;explain&#160;this&#160;collapse&#160;to&#160;the&#160;original&#160;Fisher&#160;mask<br/>
+Creality&#160;Ender&#160;3&#160;S1&#160;Pro&#160;using&#160;1.75mm&#160;PLA&#160;filament&#160;(see<br/>
+design&#160;as&#160;follows.&#160;As&#160;a&#160;particle&#160;moves&#160;faster,&#160;the&#160;captured<br/>
+<a href="Shah_CodedEvents_Optimal_Point-Spread-Function_CVPR_2024_supplementals.html#1">Figure&#160;1).&#160;</a>Then,&#160;we&#160;captured&#160;an&#160;event&#160;dataset&#160;by&#160;mov-<br/>
+binned&#160;event&#160;frame&#160;looks&#160;more&#160;similar&#160;to&#160;the&#160;composition<br/>
+ing&#160;a&#160;point&#160;source&#160;at&#160;discrete&#160;depth&#160;planes&#160;ranging&#160;between<br/>
+of&#160;a&#160;negative&#160;PSF&#160;at&#160;the&#160;start&#160;location&#160;and&#160;a&#160;positive&#160;PSF&#160;at<br/>
+75cm&#160;and&#160;125cm&#160;with&#160;and&#160;without&#160;our&#160;coded&#160;aperture.&#160;For<br/>
+the&#160;end&#160;location&#160;<a href="Shah_CodedEvents_Optimal_Point-Spread-Function_CVPR_2024_supplementals.html#3">(Figure&#160;4).&#160;</a>This&#160;suggests&#160;that&#160;single-point<br/>
+all&#160;measurements,&#160;the&#160;camera&#160;was&#160;focused&#160;at&#160;100cm.&#160;We<br/>
+event&#160;tracking&#160;mirrors&#160;two-point&#160;CMOS&#160;tracking.<br/>
+binned&#160;events&#160;in&#160;1ms&#160;intervals&#160;to&#160;achieve&#160;an&#160;effective&#160;frame<br/>
+rate&#160;of&#160;1000&#160;FPS&#160;and&#160;trained&#160;a&#160;CNN&#160;to&#160;estimate&#160;the&#160;event<br/>
+S4.&#160;Log-Intensity&#160;Difference&#160;Approximation<br/>
+frame’s&#160;depth.&#160;Results&#160;in&#160;<a href="Shah_CodedEvents_Optimal_Point-Spread-Function_CVPR_2024_supplementals.html#1">Figure&#160;2&#160;</a>demonstrate&#160;improved<br/>
+In&#160;this&#160;section,&#160;we&#160;prove&#160;the&#160;log-intensity&#160;difference&#160;ap-<br/>
+tracking&#160;performance&#160;compared&#160;to&#160;an&#160;open&#160;aperture,&#160;partic-<br/>
+proximation&#160;we&#160;consider&#160;when&#160;deriving&#160;the&#160;Cram´er&#160;Rao<br/>
+ularly&#160;at&#160;depths&#160;where&#160;the&#160;point&#160;source&#160;is&#160;defocused.<br/>
+Bound&#160;is&#160;proportional&#160;to&#160;binned&#160;event&#160;frames.<br/>
+Assume&#160;an&#160;idealized&#160;event&#160;camera&#160;model,&#160;where&#160;an<br/>
+S2.&#160;Accumulation&#160;Time<br/>
+event&#160;is&#160;triggered&#160;as&#160;soon&#160;as&#160;the&#160;log-intensity&#160;change&#160;be-<br/>
+tween&#160;the&#160;reference&#160;and&#160;the&#160;current&#160;intensity&#160;equals&#160;some<br/>
+Cutting-edge&#160;event&#160;cameras&#160;offer&#160;10kHz&#160;fresh&#160;rates;&#160;even<br/>
+threshold,<br/>
+with<br/>
+T&#160;.&#160;Consider&#160;producing&#160;a&#160;binned&#160;event&#160;frame<br/>
+16-frame&#160;accumulation,&#160;the&#160;camera&#160;effectively&#160;oper-<br/>
+for&#160;a&#160;time&#160;interval&#160;[t<br/>
+ates&#160;at<br/>
+start,&#160;tend].<br/>
+For&#160;a&#160;single&#160;pixel,&#160;let<br/>
+625FPS&#160;—&#160;much&#160;faster&#160;than&#160;conventional&#160;CMOS<br/>
+the&#160;sequence&#160;of&#160;events&#160;over&#160;this&#160;interval&#160;occur&#160;at&#160;times<br/>
+sensors.&#160;We&#160;also&#160;retrained&#160;our&#160;CNN-based&#160;tracking&#160;algo-<br/>
+t<br/>
+rithm&#160;on&#160;‘pure’&#160;event&#160;frames&#160;with&#160;no&#160;accumulation.&#160;Overall<br/>
+1,&#160;t2,&#160;.&#160;.&#160;.&#160;tn&#160;and&#160;have&#160;polarities&#160;p1,&#160;p2,&#160;.&#160;.&#160;.&#160;,&#160;pn&#160;2&#160;{<br/>
+1,&#160;1}.<br/>
+Let&#160;f(t)&#160;be&#160;the&#160;log-intensity&#160;at&#160;time&#160;t&#160;for&#160;the&#160;same&#160;pixel&#160;and<br/>
+performance&#160;degraded:&#160;NPM&#160;by&#160;+45%&#160;RMSE&#160;and&#160;NAM<br/>
+be&#160;continuous&#160;over&#160;the&#160;interval.<br/>
+by&#160;+54%&#160;RMSE.&#160;Alternative&#160;architectures&#160;such&#160;as&#160;Spiking<br/>
+Neural&#160;Networks&#160;designed&#160;for&#160;sparse&#160;binary&#160;measurements<br/>
+Lemma&#160;S4.1.&#160;The&#160;log-intensity&#160;difference,&#160;f(tend)<br/>
+may&#160;be&#160;better&#160;suited&#160;for&#160;processing&#160;‘pure’&#160;events.<br/>
+f&#160;(tstart),&#160;is&#160;proportional&#160;to&#160;the&#160;binned&#160;event&#160;pixel&#160;value,<br/>
+<hr/>
+<a name=2></a><img src="Shah_CodedEvents_Optimal_Point-Spread-Function_CVPR_2024_supplemental-2_1.png"/><br/>
+As&#160;an&#160;event&#160;camera&#160;becomes&#160;more&#160;sensitive&#160;to&#160;change<br/>
+(T&#160;decreases),&#160;the&#160;approximation’s&#160;percent&#160;error&#160;decreases<br/>
+because&#160;the&#160;magnitude&#160;of&#160;the&#160;binned&#160;event&#160;frame&#160;increases<br/>
+but&#160;the&#160;total&#160;absolute&#160;error&#160;is&#160;fixed&#160;at&#160;most&#160;1.<br/>
+Figure&#160;3.&#160;Designed&#160;Phase&#160;Masks&#160;and&#160;corresponding&#160;PSFs&#160;for<br/>
+specific&#160;speeds.&#160;Each&#160;row&#160;visualizes&#160;the&#160;neural&#160;phase&#160;mask&#160;de-<br/>
+signed&#160;for&#160;tracking&#160;particles&#160;moving&#160;at&#160;N&#160;nanometers&#160;per&#160;time<br/>interval.&#160;Observe&#160;that&#160;the&#160;optimal&#160;design&#160;for&#160;‘fast’&#160;moving&#160;parti-<br/>cles&#160;is&#160;the&#160;Fisher&#160;design.<br/>
+Pn&#160;p<br/>
+i=1<br/>
+i,&#160;with&#160;error&#160;|✏|&#160;&lt;&#160;1.<br/>
+n<br/>
+X<br/>
+f&#160;(tend)<br/>
+f&#160;(tstart)&#160;/&#160;✏&#160;+<br/>
+pi<br/>
+(24)<br/>
+i=1<br/>
+Proof.&#160;By&#160;assumption,&#160;the&#160;magnitude&#160;of&#160;the&#160;change&#160;corre-<br/>
+sponding&#160;to&#160;each&#160;event&#160;is&#160;T&#160;.&#160;Notice&#160;that&#160;T&#160;pi&#160;is&#160;the&#160;log-<br/>
+intensity&#160;difference&#160;between&#160;the&#160;previous&#160;event&#160;time&#160;(the<br/>
+reference)&#160;and&#160;the&#160;current&#160;event&#160;time.<br/>
+n<br/>
+X<br/>
+1&#160;n<br/>
+X<br/>
+pi&#160;=<br/>
+f&#160;(t<br/>
+T<br/>
+i)<br/>
+f&#160;(ti&#160;1)<br/>
+(25)<br/>
+i=1<br/>
+i=1<br/>
+The&#160;right-hand&#160;side&#160;is&#160;a&#160;telescoping&#160;sum,<br/>
+n<br/>
+X&#160;f(ti)&#160;f(ti&#160;1)&#160;=&#160;f(tn)&#160;f(t0).<br/>
+(26)<br/>
+i=1<br/>
+t0&#160;=&#160;tstart&#160;because&#160;the&#160;first&#160;event&#160;must&#160;occur&#160;t1&#160;t0&#160;after&#160;the<br/>
+start&#160;of&#160;the&#160;interval.&#160;Then,&#160;the&#160;binned&#160;event&#160;frame&#160;is<br/>
+n<br/>
+X<br/>
+1<br/>
+pi&#160;=<br/>
+(f&#160;(t<br/>
+T<br/>
+n)<br/>
+f&#160;(tstart))&#160;.<br/>
+(27)<br/>
+i=1<br/>
+Finally,&#160;|f(tn)&#160;f(tend)|&#160;=&#160;|&#160;|&#160;&lt;&#160;T&#160;because&#160;if&#160;the&#160;quan-<br/>
+tity&#160;exceeded&#160;the&#160;threshold,&#160;an&#160;additional&#160;event&#160;would&#160;be<br/>
+triggered.&#160;Substitute&#160;tend&#160;for&#160;tn.<br/>
+n<br/>
+X<br/>
+1<br/>
+pi&#160;=<br/>
+(f&#160;(t<br/>
+T<br/>
+end)<br/>
+f&#160;(tstart)&#160;+&#160;)<br/>
+(28)<br/>
+i=1<br/>
+1<br/>
+=<br/>
+(f&#160;(t<br/>
+T<br/>
+end)<br/>
+f&#160;(tstart))&#160;+&#160;✏<br/>
+(29)<br/>
+Thus,&#160;a&#160;binned&#160;event&#160;frame&#160;can&#160;be&#160;approximated&#160;as&#160;log-<br/>
+intensity&#160;difference&#160;divided&#160;by&#160;T&#160;with&#160;error&#160;|✏|&#160;&lt;&#160;1.<br/>
+<hr/>
+<a name=3></a><img src="Shah_CodedEvents_Optimal_Point-Spread-Function_CVPR_2024_supplemental-3_1.png"/><br/>
+Figure&#160;4.&#160;Event&#160;camera&#160;measurements&#160;of&#160;a&#160;moving&#160;particle&#160;with&#160;the&#160;Fisher&#160;mask.&#160;Motion&#160;is&#160;simulated&#160;over&#160;a&#160;fixed&#160;time&#160;interval&#160;with<br/>100&#160;event&#160;samples.&#160;Observe&#160;a&#160;‘fast’&#160;moving&#160;particle&#160;produces&#160;an&#160;event&#160;frame&#160;with&#160;two&#160;copies&#160;of&#160;a&#160;regular&#160;PSF:&#160;a&#160;negative&#160;copy&#160;at&#160;the&#160;start<br/>location,&#160;and&#160;a&#160;positive&#160;copy&#160;at&#160;the&#160;end&#160;location.&#160;Row&#160;1:&#160;negative&#160;event&#160;count&#160;over&#160;the&#160;time&#160;interval.&#160;Row&#160;2:&#160;positive&#160;event&#160;count&#160;over&#160;the<br/>time&#160;interval.&#160;Row&#160;3:&#160;the&#160;red&#160;channel&#160;visualizes&#160;negative&#160;events&#160;and&#160;the&#160;blue&#160;channel&#160;visualizes&#160;positive&#160;events.&#160;The&#160;pink&#160;regions&#160;represent<br/>where&#160;the&#160;events&#160;cancel&#160;in&#160;a&#160;binned&#160;measurement.&#160;Row&#160;4:&#160;binned&#160;event&#160;frame&#160;pos<br/>
+neg.&#160;Row&#160;5:&#160;log-intensity&#160;difference<br/>
+L.<br/>
+<hr/>
+<a name="outline"></a><h1>Document Outline</h1>
+<ul>
+<li><a href="Shah_CodedEvents_Optimal_Point-Spread-Function_CVPR_2024_supplementals.html#1">. Introduction</a></li>
+<li><a href="Shah_CodedEvents_Optimal_Point-Spread-Function_CVPR_2024_supplementals.html#1">. Related Work</a>
+<ul>
+<li><a href="Shah_CodedEvents_Optimal_Point-Spread-Function_CVPR_2024_supplementals.html#1">. Coded Optics</a></li>
+<li><a href="Shah_CodedEvents_Optimal_Point-Spread-Function_CVPR_2024_supplementals.html#1">. Microscopy Tracking</a></li>
+<li><a href="Shah_CodedEvents_Optimal_Point-Spread-Function_CVPR_2024_supplementals.html#1">. Depth Estimation</a></li>
+</ul>
+</li>
+<li><a href="Shah_CodedEvents_Optimal_Point-Spread-Function_CVPR_2024_supplementals.html#1">. Theory</a>
+<ul>
+<li><a href="Shah_CodedEvents_Optimal_Point-Spread-Function_CVPR_2024_supplementals.html#1">. Event Camera Simulation</a></li>
+<li><a href="Shah_CodedEvents_Optimal_Point-Spread-Function_CVPR_2024_supplementals.html#1">. Information</a></li>
+</ul>
+</li>
+<li><a href="Shah_CodedEvents_Optimal_Point-Spread-Function_CVPR_2024_supplementals.html#1">. Method</a>
+<ul>
+<li><a href="Shah_CodedEvents_Optimal_Point-Spread-Function_CVPR_2024_supplementals.html#1">. Objective Function</a></li>
+<li><a href="Shah_CodedEvents_Optimal_Point-Spread-Function_CVPR_2024_supplementals.html#1">. Optical Parameter Representation</a></li>
+</ul>
+</li>
+<li><a href="Shah_CodedEvents_Optimal_Point-Spread-Function_CVPR_2024_supplementals.html#1">. Experimental Details</a></li>
+<li><a href="Shah_CodedEvents_Optimal_Point-Spread-Function_CVPR_2024_supplementals.html#1">. Results</a>
+<ul>
+<li><a href="Shah_CodedEvents_Optimal_Point-Spread-Function_CVPR_2024_supplementals.html#1">. Cramér Rao Bound</a></li>
+<li><a href="Shah_CodedEvents_Optimal_Point-Spread-Function_CVPR_2024_supplementals.html#1">. 3D Tracking</a></li>
+</ul>
+</li>
+<li><a href="Shah_CodedEvents_Optimal_Point-Spread-Function_CVPR_2024_supplementals.html#1">. Ablation Studies</a>
+<ul>
+<li><a href="Shah_CodedEvents_Optimal_Point-Spread-Function_CVPR_2024_supplementals.html#1">. Optical Representations</a></li>
+<li><a href="Shah_CodedEvents_Optimal_Point-Spread-Function_CVPR_2024_supplementals.html#1">. Tracking Limits</a></li>
+</ul>
+</li>
+<li><a href="Shah_CodedEvents_Optimal_Point-Spread-Function_CVPR_2024_supplementals.html#1">. Limitations</a></li>
+<li><a href="Shah_CodedEvents_Optimal_Point-Spread-Function_CVPR_2024_supplementals.html#1">. Conclusion</a></li>
+<li><a href="Shah_CodedEvents_Optimal_Point-Spread-Function_CVPR_2024_supplementals.html#1">. Hardware Prototype</a></li>
+<li><a href="Shah_CodedEvents_Optimal_Point-Spread-Function_CVPR_2024_supplementals.html#1">. Accumulation Time</a>
+<ul>
+<li><a href="Shah_CodedEvents_Optimal_Point-Spread-Function_CVPR_2024_supplementals.html#1">. The Effects of Particle Speed</a>
+<ul>
+<li><a href="Shah_CodedEvents_Optimal_Point-Spread-Function_CVPR_2024_supplementals.html#1">. Log-Intensity Difference Approximation</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<hr/>
+</body>
+</html>

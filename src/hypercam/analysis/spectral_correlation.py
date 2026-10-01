@@ -85,7 +85,7 @@ def load_openevt(library: Path | None = None) -> Iterator[object]:
     ``OPENEVT_PLUGIN_PATH`` for the plugin search.
     """
     if library is None:
-        project_root = Path(__file__).resolve().parents[2]
+        project_root = Path(__file__).resolve().parents[3]
         candidate = project_root / "openevt" / "target" / "release" / "libopenevt.so"
         library = candidate if candidate.exists() else None
 
@@ -107,8 +107,16 @@ def load_openevt(library: Path | None = None) -> Iterator[object]:
             "Build them with: cargo build --release --features python"
         )
 
+    # An explicitly configured OPENEVT_PLUGIN_PATH wins: it lets a caller
+    # steer the device-plugin scan (e.g. toward a plugins-only directory)
+    # while still resolving the extension consistently. Otherwise the search
+    # falls back to the directory the extension was built in.
     previous_plugin_path = os.environ.get("OPENEVT_PLUGIN_PATH")
-    os.environ["OPENEVT_PLUGIN_PATH"] = str(plugin_directory)
+    os.environ["OPENEVT_PLUGIN_PATH"] = (
+        previous_plugin_path
+        if previous_plugin_path is not None
+        else str(plugin_directory)
+    )
     previous_module = sys.modules.pop("openevt", None)
     try:
         spec = importlib.util.spec_from_file_location("openevt", library)

@@ -5,12 +5,32 @@
 #                Kilo (GLM, z-ai/glm-5.3-flash).
 # ==============================================================================
 
-"""Build activity frames from EVT3 recordings and compare them with Pearson r.
+"""Correlate chopper-chopped EVT3 recordings across wavelengths.
 
-Each recording is averaged into an activity frame, cropped to the common
-signal window, high-passed to drop large-scale background, and correlated
-pairwise over the pixels that are active in either frame. Recordings are
-labeled from their filenames (number if present, else trailing word).
+Chopper model (default chopperhead wheel): radius 60 mm, spinning at 960
+rev/s, with 12 windows spaced every 30 deg of arc (6 window pitches across
+a full diameter). A fixed line of sight is interrupted once per window, so
+every pixel is chopped at 12 * 960 = 11520 Hz (86.81 us pitch period).
+
+The field of view holds a full 2 windows separated by one blade segment.
+The two windows therefore sit one 30 deg pitch apart, which offsets their
+chop waveforms by exactly one window-pass period - i.e. they blink in
+phase - while the chop phase sweeps a full cycle across the FoV: pixels
+half a pitch apart blink in antiphase, and windows across a full diameter
+(6 pitches) are phase-aligned. Because the FoV spans a whole number of
+pitches, the aggregate transmitted flux is essentially constant: the wheel
+is a constant-flux spinning pattern, not a global strobe, so unlike the
+blinking-source data in spectral_correlation.py there is no global on/off
+burst to latch onto.
+
+Each recording is therefore averaged into activity frames that integrate
+whole revolutions (the requested --accumulation-ms is snapped to the
+nearest whole number of 1.0417 ms revolutions by default, so every frame
+samples all 12 window phases uniformly regardless of start phase), cropped
+to the common signal window, high-passed to drop large-scale background,
+and correlated pairwise with the Pearson coefficient over the pixels that
+are active in either frame. Recordings are labeled from their filenames
+(the last number, e.g. 960hz-chopper_425 -> 425).
 """
 
 from __future__ import annotations
@@ -19,6 +39,7 @@ import argparse
 import csv
 import importlib.util
 import json
+import math
 import os
 import re
 import struct
@@ -85,7 +106,7 @@ def load_openevt(library: Path | None = None) -> Iterator[object]:
     ``OPENEVT_PLUGIN_PATH`` for the plugin search.
     """
     if library is None:
-        project_root = Path(__file__).resolve().parents[2]
+        project_root = Path(__file__).resolve().parents[3]
         candidate = project_root / "openevt" / "target" / "release" / "libopenevt.so"
         library = candidate if candidate.exists() else None
 
@@ -107,8 +128,16 @@ def load_openevt(library: Path | None = None) -> Iterator[object]:
             "Build them with: cargo build --release --features python"
         )
 
+    # An explicitly configured OPENEVT_PLUGIN_PATH wins: it lets a caller
+    # steer the device-plugin scan (e.g. toward a plugins-only directory)
+    # while still resolving the extension consistently. Otherwise the search
+    # falls back to the directory the extension was built in.
     previous_plugin_path = os.environ.get("OPENEVT_PLUGIN_PATH")
-    os.environ["OPENEVT_PLUGIN_PATH"] = str(plugin_directory)
+    os.environ["OPENEVT_PLUGIN_PATH"] = (
+        previous_plugin_path
+        if previous_plugin_path is not None
+        else str(plugin_directory)
+    )
     previous_module = sys.modules.pop("openevt", None)
     try:
         spec = importlib.util.spec_from_file_location("openevt", library)
@@ -415,7 +444,115 @@ def positive_int(value: str) -> int:
     return parsed
 
 
+def positive_float(value: str) -> float:
+    parsed = float(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be greater than zero")
+    return parsed
+
+
+def describe_chopper(
+    wheel_rps: float,
+    window_count: int,
+    wheel_radius_mm: float,
+    fov_window_count: int,
+    requested_accumulation_ms: int,
+    align_revolutions: bool,
+) -> tuple[dict[str, object], int]:
+    """Derive the chopper illumination model and the effective accumulation.
+
+    The default chopperhead wheel spins at ``wheel_rps`` rev/s carrying
+    ``window_count`` equidistant windows (so a full diameter spans half of
+    them), which chops every pixel at ``window_count * wheel_rps`` Hz. The
+    FoV holds ``fov_window_count`` windows separated by single blade
+    segments, i.e. whole window pitches apart, so the FoV-visible windows
+    chop in phase while the phase sweeps a full cycle across the FoV and
+    the aggregate transmitted flux stays ~constant (integer-pitch span).
+
+    When ``align_revolutions`` is set, the requested accumulation interval
+    is snapped to the nearest whole number of revolutions so every activity
+    frame integrates all window phases uniformly; otherwise the requested
+    milliseconds are used verbatim.
+
+    Returns the metadata block and the effective accumulation interval in
+    microseconds to hand to :func:`build_activity_frame`.
+    """
+    window_pitch_deg = 360.0 / window_count
+    revolution_period_us = 1e6 / wheel_rps
+    window_pass_frequency_hz = window_count * wheel_rps
+    window_pass_period_us = 1e6 / window_pass_frequency_hz
+    wheel_radius_m = wheel_radius_mm / 1000.0
+    blade_edge_speed_mps = 2.0 * math.pi * wheel_radius_m * wheel_rps
+
+    if align_revolutions:
+        revolutions_per_frame = max(
+            1, round(requested_accumulation_ms * 1_000.0 / revolution_period_us)
+        )
+        effective_accumulation_us = int(round(revolutions_per_frame * revolution_period_us))
+    else:
+        revolutions_per_frame = None
+        effective_accumulation_us = requested_accumulation_ms * 1_000
+
+    model: dict[str, object] = {
+        "wheel_rps": wheel_rps,
+        "wheel_windows": window_count,
+        "wheel_radius_mm": wheel_radius_mm,
+        "window_pitch_deg": window_pitch_deg,
+        "windows_per_diameter": window_count // 2,
+        "window_pass_frequency_hz": window_pass_frequency_hz,
+        "window_pass_period_us": window_pass_period_us,
+        "revolution_period_us": revolution_period_us,
+        "blade_edge_speed_mps": blade_edge_speed_mps,
+        "fov_windows": fov_window_count,
+        "illumination_model": (
+            "Each pixel is chopped at window_pass_frequency_hz as the "
+            f"{window_count}-window wheel sweeps past. The FoV holds "
+            f"{fov_window_count} windows separated by single blade segments, "
+            f"i.e. whole {window_pitch_deg:.0f} deg pitches apart, so the "
+            "FoV-visible windows chop in phase (one pitch = one full "
+            "window-pass period) while the chop phase sweeps a full cycle "
+            "across the FoV: pixels half a pitch apart blink in antiphase, "
+            "and windows across a full diameter ("
+            f"{window_count // 2} pitches) are phase-aligned. The FoV spans "
+            "a whole number of pitches, so the aggregate transmitted flux "
+            "is ~constant: a constant-flux spinning pattern, not a global "
+            "strobe."
+        ),
+        "accumulation": {
+            "requested_ms": requested_accumulation_ms,
+            "align_revolutions": align_revolutions,
+            "revolutions_per_frame": revolutions_per_frame,
+            "effective_us": effective_accumulation_us,
+        },
+        "trigger_stream": (
+            "not recorded during capture (the *_triggers.csv sidecars are "
+            "empty); integration therefore relies on whole-revolution "
+            f"alignment at the nominal {wheel_rps:g} rev/s"
+        ),
+    }
+    return model, effective_accumulation_us
+
+
 def analyze(args: argparse.Namespace) -> Path:
+    chopper_model, accumulation_us = describe_chopper(
+        args.wheel_rps,
+        args.wheel_windows,
+        args.wheel_radius_mm,
+        args.fov_windows,
+        args.accumulation_ms,
+        args.align_revolutions,
+    )
+    accumulation = chopper_model["accumulation"]
+    assert isinstance(accumulation, dict)
+    print(
+        f"Chopper: {args.wheel_windows} windows at {args.wheel_rps:g} rev/s -> "
+        f"{chopper_model['window_pass_frequency_hz']:,.0f} Hz per-pixel chop "
+        f"({chopper_model['window_pass_period_us']:.2f} us pitch); blade edges "
+        f"sweep at {chopper_model['blade_edge_speed_mps']:,.0f} m/s; FoV holds "
+        f"{args.fov_windows} windows (constant aggregate flux); frames integrate "
+        f"{accumulation['revolutions_per_frame']} revolutions "
+        f"= {accumulation['effective_us']} us"
+    )
     recordings = discover_recordings(args.pattern)
     labels = [label for label, _ in recordings]
     output = args.output.expanduser().resolve()
@@ -435,7 +572,7 @@ def analyze(args: argparse.Namespace) -> Path:
                 openevt,
                 path,
                 args.polarity,
-                args.accumulation_ms * 1_000,
+                accumulation_us,
                 args.transform,
             )
             if expected_shape is None:
@@ -475,6 +612,7 @@ def analyze(args: argparse.Namespace) -> Path:
         "polarity": args.polarity,
         "transform": args.transform,
         "accumulation_ms": args.accumulation_ms,
+        "chopper": chopper_model,
         "crop": None
         if crop_window is None
         else {
@@ -496,7 +634,7 @@ def make_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--pattern",
-        default="data/raw/evt3_raw/spectral_*.raw",
+        default="data/raw/evt3_raw/960hz-chopper_*.raw",
         help="glob for recordings; the last underscore/hyphen number is the wavelength",
     )
     parser.add_argument(
@@ -506,10 +644,46 @@ def make_parser() -> argparse.ArgumentParser:
         help="output directory (default: %(default)s)",
     )
     parser.add_argument(
+        "--wheel-rps",
+        type=positive_float,
+        default=960.0,
+        help="chopper wheel rotation rate in revolutions per second (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--wheel-windows",
+        type=positive_int,
+        default=12,
+        help="transmissive windows around the wheel; 6 pitches span a full "
+        "diameter (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--wheel-radius-mm",
+        type=positive_float,
+        default=60.0,
+        help="wheel radius in mm, used only for the blade-edge sweep speed "
+        "(default: %(default)s)",
+    )
+    parser.add_argument(
+        "--fov-windows",
+        type=positive_int,
+        default=2,
+        help="windows visible inside the field of view at once; they sit "
+        "whole pitches apart, so the aggregate flux is ~constant (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--no-align-revolutions",
+        dest="align_revolutions",
+        action="store_false",
+        help="use --accumulation-ms verbatim instead of snapping it to whole "
+        "chopper revolutions",
+    )
+    parser.add_argument(
         "--accumulation-ms",
         type=positive_int,
         default=10,
-        help="activity-frame accumulation interval in milliseconds (default: %(default)s)",
+        help="requested activity-frame accumulation interval in milliseconds; "
+        "snapped to whole revolutions unless --no-align-revolutions "
+        "(default: %(default)s -> 10 revolutions = 10.4167 ms)",
     )
     parser.add_argument(
         "--polarity",

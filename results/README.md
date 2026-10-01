@@ -24,7 +24,7 @@ reproduced) without reading the code. Directories follow the naming
 | `spectral_correlation_fine_signed/` | `hypercam-sweep --polarity signed` variant | fine sweep with signed polarity → `discernibility_curves.*` used by the polarity deck |
 | `rgb_raw/` | `hypercam` on RGB-camera captures | color-camera reference for the LCD target |
 | `archive/` | superseded earlier runs | provenance only; also excluded from the data image, may be deleted |
-| `spectral_correlation_chopper/` | `hypercam-chopper` (when run) | chopper-wheel recordings with trigger alignment |
+| `spectral_correlation_chopper/` | `hypercam-chopper` (when run) | chopper-wheel recordings; frames integrate whole 960 rev/s revolutions (10.4167 ms each by default) |
 
 ## What one analysis directory contains
 
