@@ -200,6 +200,7 @@ dependencies = [
     { name = "python-pptx" },
     { name = "scipy" },
     { name = "seaborn" },
+    { name = "seabreeze" },
 ]
 
 [package.dev-dependencies]
@@ -215,6 +216,7 @@ requires-dist = [
     { name = "python-pptx", specifier = ">=1.0.2" },
     { name = "scipy", specifier = ">=1.14.0" },
     { name = "seaborn", specifier = ">=0.13.2" },
+    { name = "seabreeze", specifier = ">=2.11.0" },
 ]
 
 [package.metadata.requires-dev]
@@ -897,6 +899,37 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/86/59/a451d7420a77ab0b98f7affa3a1d78a313d2f7281a57afb1a34bae8ab412/seaborn-0.13.2.tar.gz", hash = "sha256:93e60a40988f4d65e9f4885df477e2fdaff6b73a9ded434c1ab356dd57eefff7", size = 1457696, upload-time = "2024-01-25T13:21:52.551Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/83/11/00d3c3dfc25ad54e731d91449895a79e4bf2384dc3ac01809010ba88f6d5/seaborn-0.13.2-py3-none-any.whl", hash = "sha256:636f8336facf092165e27924f223d3c62ca560b1f2bb5dff7ab7fad265361987", size = 294914, upload-time = "2024-01-25T13:21:49.598Z" },
+]
+
+[[package]]
+name = "seabreeze"
+version = "2.11.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/66/7e/93bb3b8d71acf153f63fc09be63d3a5850f9421a41d09f94c46e2a45f736/seabreeze-2.11.0.tar.gz", hash = "sha256:418f3dbd009795245e59bc576475cdb89dafe9734b6b139a7d0a14018e419116", size = 7680836, upload-time = "2025-10-26T13:27:53.161Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/36/a4/306078a97b7537ad7c9add834406aabab97ff0dc4422d836f03cd0cc47ad/seabreeze-2.11.0-cp312-cp312-macosx_10_13_x86_64.whl", hash = "sha256:b0393dd1ce38cf2336b2342a434e775fa5296d0c0f25764965166083ac7b1339", size = 854856, upload-time = "2025-10-26T13:27:22.905Z" },
+    { url = "https://files.pythonhosted.org/packages/85/51/6f604ab12de4e71e094c37f426d70b5ed7b3bbf5cc4a93be679379aaa9ca/seabreeze-2.11.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:51d6d908037becb0cf668564395b32c1ec3a12e7368621d4933e5120c680adf7", size = 819427, upload-time = "2025-10-26T13:27:25.02Z" },
+    { url = "https://files.pythonhosted.org/packages/a5/0a/6f60ad4de9fb96ecb587e46983c08e647419e1d1b05af050a9af5f85fc9a/seabreeze-2.11.0-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:53249b5afd7d4855592f774290d2d7b7f7568469fac0bf99896b2b256f2a5619", size = 2010047, upload-time = "2025-10-26T13:27:26.011Z" },
+    { url = "https://files.pythonhosted.org/packages/35/55/bc03f284e8083293b65ddc66264bf7cb3bcf76f40e046d22124a7a17ff47/seabreeze-2.11.0-cp312-cp312-win32.whl", hash = "sha256:7b9bc3cae20a8132300727808cc31e1cbf252b4992483d69dba62af603007e8d", size = 398447, upload-time = "2025-10-26T13:27:27.035Z" },
+    { url = "https://files.pythonhosted.org/packages/eb/55/33488dcefe1b6bafa5a9985ef5409f66077bb9b88605ae6222c861944090/seabreeze-2.11.0-cp312-cp312-win_amd64.whl", hash = "sha256:8b76888059ab2281d58c51ba24b28fdf0c4603218da7e62dc28a9445787a472b", size = 488516, upload-time = "2025-10-26T13:27:28.095Z" },
+    { url = "https://files.pythonhosted.org/packages/a6/63/df680ef556869e8cb2592d5988bc81240ee577785c85192a9a1487c690bc/seabreeze-2.11.0-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:fcd1ff1cea5e8ae80db66484e7e675d85aefb6bd561c04a377ba724ded68e946", size = 853828, upload-time = "2025-10-26T13:27:29.307Z" },
+    { url = "https://files.pythonhosted.org/packages/e7/c1/a239c109871453210be0bc58d1e9ad85c2c700996153ef3dba41d4285822/seabreeze-2.11.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:5996bd67ad92fe0022ae7d0949ceec4eec936d04cbe8669157152b2ac72e04df", size = 818156, upload-time = "2025-10-26T13:27:31.459Z" },
+    { url = "https://files.pythonhosted.org/packages/98/a2/af93e27f961b0753453a8cab1baf49c71479f8268b5b122c752bd7d715e3/seabreeze-2.11.0-cp313-cp313-manylinux_2_28_x86_64.whl", hash = "sha256:0adf911917fff866ecdd554fa5c9e4dfd5aa1e59c8cd0fefe667a890c7681aaa", size = 2007458, upload-time = "2025-10-26T13:27:32.41Z" },
+    { url = "https://files.pythonhosted.org/packages/0c/c6/81251f180165c10c772d122747fe0d9de3c25b775854437a74799f00d9e4/seabreeze-2.11.0-cp313-cp313-win32.whl", hash = "sha256:596b57ea6b2945ed418befa90d479fafa7a8efd1ffbfebf3b4f61af3f39aef86", size = 397322, upload-time = "2025-10-26T13:27:34.228Z" },
+    { url = "https://files.pythonhosted.org/packages/39/6c/75331de0bf300bfe6ddcf1b766018eef2639491e6db270eb5f123d7c22e8/seabreeze-2.11.0-cp313-cp313-win_amd64.whl", hash = "sha256:e84855a87255f7e6cda4a65e276bdf93f777a97eb1740d7eaf02d7ca8966876a", size = 488616, upload-time = "2025-10-26T13:27:35.67Z" },
+    { url = "https://files.pythonhosted.org/packages/06/9b/084b7421c4420b9210296b5f40eb82e2b7015bdd1f7e5d05788af08f69dc/seabreeze-2.11.0-cp314-cp314-macosx_10_15_x86_64.whl", hash = "sha256:b7f6d54ca5a4215d302b2d4cd7195c4e12ac560a931b01b732f6e17522787aa6", size = 855136, upload-time = "2025-10-26T13:27:36.993Z" },
+    { url = "https://files.pythonhosted.org/packages/4a/1d/0802a2fda0ec902c1dbac72ae7e529d12305a2caf522efd31741dd3adb6f/seabreeze-2.11.0-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:48beaa2d6a98e6e02da5d0b2713178c690203647b2a690fca7f1368f780c1011", size = 820971, upload-time = "2025-10-26T13:27:37.991Z" },
+    { url = "https://files.pythonhosted.org/packages/ee/91/a59f23e6a668f159b88ffeed408d3f1d09a807673777f70708e40624d460/seabreeze-2.11.0-cp314-cp314-manylinux_2_28_x86_64.whl", hash = "sha256:f90e3e6dd7661b1a27f44ce2c0c34e58251a8be2f87d5f0e9b5f91065c59d53a", size = 2010859, upload-time = "2025-10-26T13:27:39.034Z" },
+    { url = "https://files.pythonhosted.org/packages/83/10/26e09af7282b01615393d5e70ba7e90f52b25206152b31abbd2b1b8081c0/seabreeze-2.11.0-cp314-cp314-win32.whl", hash = "sha256:d7d7c909fbd12b4f776a2e12bc182b328928f255e9f110be7c09bbd32b314540", size = 404490, upload-time = "2025-10-26T13:27:40.098Z" },
+    { url = "https://files.pythonhosted.org/packages/90/8a/bf8496084cf176f8057f7c621a088b38d187011727b9ec74883d8a0e8eb7/seabreeze-2.11.0-cp314-cp314-win_amd64.whl", hash = "sha256:a8ee90fba68ddc5cdd1cb2dc772f7e45579099cc40a5d1e80d6410625318435b", size = 500898, upload-time = "2025-10-26T13:27:41.1Z" },
+    { url = "https://files.pythonhosted.org/packages/3f/e1/c35d18ae327824cc81ed816f58f98e4f57e8a92f8bb8f287ab2c77bae398/seabreeze-2.11.0-cp314-cp314t-macosx_10_15_x86_64.whl", hash = "sha256:f80748c66f01d2df3dcf99c0dd93c25d7a2237577973a5b02f60b8e9a7ced67f", size = 863475, upload-time = "2025-10-26T13:27:41.973Z" },
+    { url = "https://files.pythonhosted.org/packages/c1/85/790576d04fd03fd9047c8f89b1f4ccfb126563fbb95f69e9cf80f60bf8b2/seabreeze-2.11.0-cp314-cp314t-macosx_11_0_arm64.whl", hash = "sha256:8238e2dad02fae26181c01476fd4e0ec5e14797b2fe49ef5bb8b3d4741032b18", size = 838529, upload-time = "2025-10-26T13:27:43.25Z" },
+    { url = "https://files.pythonhosted.org/packages/90/1f/164b6e88bd2d4ce7efb6b5b470ae19a16f62f2ce5f82356112908e36366d/seabreeze-2.11.0-cp314-cp314t-manylinux_2_28_x86_64.whl", hash = "sha256:e1f3b42cb63e3d4de288d83fe39f33c415c93736e67da16b31e98c0b2b52b0a8", size = 2009770, upload-time = "2025-10-26T13:27:44.741Z" },
+    { url = "https://files.pythonhosted.org/packages/92/1e/f1c79a5ba358649f68e99d9ec4ad207195b75d558115159e3346fc6f140b/seabreeze-2.11.0-cp314-cp314t-win32.whl", hash = "sha256:b6c080e38b15538297344bdb3bc416d8a9b91a8541ed833dfbf0d4666dfc82ea", size = 455248, upload-time = "2025-10-26T13:27:45.744Z" },
+    { url = "https://files.pythonhosted.org/packages/28/cf/b7ffc3e8c5bd53adf952b8802206922c96c9e8a2a4c893388b80516689aa/seabreeze-2.11.0-cp314-cp314t-win_amd64.whl", hash = "sha256:88c0f78121bd6e2a67f89a901123d3708bbe14a02e0e66a2f83785e95df576f2", size = 573936, upload-time = "2025-10-26T13:27:46.845Z" },
 ]
 
 [[package]]

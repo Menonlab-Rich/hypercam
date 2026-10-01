@@ -25,6 +25,8 @@ reproduced) without reading the code. Directories follow the naming
 | `rgb_raw/` | `hypercam` on RGB-camera captures | color-camera reference for the LCD target |
 | `archive/` | superseded earlier runs | provenance only; also excluded from the data image, may be deleted |
 | `spectral_correlation_chopper/` | `hypercam-chopper` (when run) | chopper-wheel recordings; frames integrate whole 960 rev/s revolutions (10.4167 ms each by default) |
+| `source_identification/` | `hypercam-source` | what the repeatable component of the converged signed correlation is: corrected disjoint-time-block split-half reliabilities, disattenuated cross-band r, no-high-pass Sobel gradient congruence + local maps, early/late segment stationarity with shift search, lambda-scaling magnification sweep, and dark-control overlap (`baseline.raw`) |
+| `amplitude_encoding/` | `hypercam-amplitude` | the DOE's amplitude channel: folded (ON+OFF) amplitude maps, flux normalization (separable null), SSIM with luminance/contrast/structure breakdown, log2 gain-ratio maps, response-vector separability (rank-1 test), excess chromatic variance vs within-band noise floor, dark-control overlap |
 
 ## What one analysis directory contains
 
