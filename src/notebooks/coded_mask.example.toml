@@ -1,0 +1,71 @@
+# ==============================================================================
+# Author:        Richard G. Baird
+# Date Modified: 2026-10-05
+# Notice:        This file was authored or modified with the assistance of
+#                Kilo (Qwen3.8-flash).
+# ==============================================================================
+#
+# Headless configuration for coded_mask.py (e.g. CHPC cluster runs).
+# Any key omitted keeps the default written into the notebook's config cell.
+#
+#   CODED_MASK_CONFIG=/path/to/run.toml python coded_mask.py
+#
+# Inside the marimo editor leave CODED_MASK_CONFIG unset.
+
+[design]
+# Sensor sampling raster (H, W) in detector pixels.
+sensor_raster = [720, 1280]
+# Physical pitch of one detector pixel (m). Propagation grid.
+sensor_pixel_pitch = 3.45e-6
+# Physical pitch of one DOE cell (m). > sensor_pixel_pitch means one DOE
+# structure covers multiple detector pixels; DOE_RASTER is derived so the
+# DOE's physical extent matches the sensor field of view.
+doe_pixel_pitch = 1.035e-5
+# Peak DOE relief thickness (m) scaling the MLP output.
+doe_max_thickness = 5.0e-6
+# Search range for the trainable DOE-to-focal-plane offset (m).
+doe_gap_range = [1.0e-5, 1.0e-3]
+# Nominal offset: optimizer start and evaluation fallback (m).
+doe_gap = 5.0e-4
+# Spectral simulation band [min, max) in nm and bin step (nm).
+wavelength_band_nm = [380.0, 750.0]
+wavelength_step_nm = 5.0
+# "rect" or "circular" entrance aperture.
+aperture_type = "rect"
+aperture_radius_fraction = 0.5
+
+[run]
+# "cuda", "cpu", or unset to auto-detect.
+device = "cuda"
+run_training = true
+run_debug_training = false
+save = true
+run_hyperspectral = true
+create_video = false
+create_rgb_video = false
+video_codec = "FFV1"
+# Integer for reproducible MLP init and Monte Carlo phase screens;
+# comment out to keep fresh randomness per run.
+seed = 20261005
+
+[paths]
+# Cauchy dispersion curve table (columns "Wavelength (m)" and "n").
+# Use an absolute path on the cluster; the file browser only exists in
+# the editor, so headless runs always read this file.
+material_xlsx = "/scratch/baird/hypercam/mat_maP1275.xlsx"
+# Directory of source hyperspectral MAT frames (running-frog sequence).
+hyperspectral_dir = "/scratch/baird/hypercam/data/running-frog"
+# Directory for transformed frame .npy outputs and the video.
+transformed_dir = "/scratch/baird/hypercam/transformed_running_frog"
+
+[training]
+# Keys are forwarded verbatim to train_mask(); see its signature.
+epochs = 1000
+learning_rate = 1.0e-4
+photons_per_bin = 1.0e5
+background_photons = 1.0
+patch_size = 256
+print_every = 100
+monte_carlo_samples = 2
+optim_space = false
+optim_spectral = true

@@ -1,6 +1,13 @@
+# ==============================================================================
+# Author:        Richard G. Baird
+# Date Modified: 2026-10-05
+# Notice:        This file was authored or modified with the assistance of
+#                Kilo (Qwen3.8-flash).
+# ==============================================================================
+
 import marimo
 
-__generated_with = "0.23.16"
+__generated_with = "0.25.1"
 app = marimo.App(width="medium")
 
 
@@ -9,44 +16,158 @@ def _():
     import os
 
     os.putenv('PYTORCH_CUDA_ALLOC_CONF', 'expandable_segments:True')
-    return
+    return (os,)
 
 
 @app.cell
-def _():
+def _(os):
     import torch
     import torch.nn as nn
     import numpy as np
-    import torch.nn.functional as F
     import pandas as pd
     from scipy.interpolate import CubicSpline
-    from scipy.io import loadmat
     from pathlib import Path
+    import marimo as mo
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    # Centralized execution switches. Change these here rather than searching
-    # through the notebook for individual run cells.
-    RUN_TRAINING = True
-    RUN_DEBUG_TRAINING = False
-    SAVE = True
-    RUN_HYPERSPECTRAL = True
-    CREATE_VIDEO = True
-    CREATE_RGB_VIDEO = False
-    DOE_GAP = 500e-6
-    VIDEO_CODEC = "FFV1"
+    # ------------------------------------------------------------------
+    # Headless (CHPC) configuration. When this notebook runs as a plain
+    # script, point CODED_MASK_CONFIG at a TOML file whose sections
+    # [design], [run], [paths], and [training] override the defaults
+    # below; unset variables keep the defaults, so the marimo editor is
+    # unaffected:
+    #
+    #   CODED_MASK_CONFIG=/scratch/run.toml python coded_mask.py
+    #
+    # See coded_mask.example.toml for the full schema.
+    # ------------------------------------------------------------------
+    import tomllib
+
+    config_path = os.environ.get("CODED_MASK_CONFIG", "")
+    if config_path:
+        with open(config_path, "rb") as config_handle:
+            CONFIG = tomllib.load(config_handle)
+    else:
+        CONFIG = {}
+
+    def _get(table, key, default):
+        """TOML value with a default; JSON-style lists become tuples."""
+        value = table.get(key, default)
+        return tuple(value) if isinstance(value, list) else value
+
+    design = CONFIG.get("design", {})
+    run_cfg = CONFIG.get("run", {})
+    paths_cfg = CONFIG.get("paths", {})
+
+    device = torch.device(_get(
+        run_cfg, "device", "cuda" if torch.cuda.is_available() else "cpu",
+    ))
+    # Centralized execution switches. Change these here (or in the TOML
+    # [run] section) rather than searching through the notebook.
+    RUN_TRAINING = bool(_get(run_cfg, "run_training", True))
+    RUN_DEBUG_TRAINING = bool(_get(run_cfg, "run_debug_training", False))
+    SAVE = bool(_get(run_cfg, "save", True))
+    RUN_HYPERSPECTRAL = bool(_get(run_cfg, "run_hyperspectral", True))
+    CREATE_VIDEO = bool(_get(run_cfg, "create_video", True))
+    CREATE_RGB_VIDEO = bool(_get(run_cfg, "create_rgb_video", False))
+    VIDEO_CODEC = str(_get(run_cfg, "video_codec", "FFV1"))
+    # Reproducibility: when [run].seed is set it seeds the torch RNG
+    # (MLP init) and the hyperspectral Monte Carlo phase screens; unset
+    # keeps the interactive behavior of fresh randomness per run.
+    SEED = run_cfg.get("seed", None)
+    SEED = None if SEED is None else int(SEED)
+    if SEED is not None:
+        torch.manual_seed(SEED)
+    # ------------------------------------------------------------------
+    # Physical design variables. Every model, training, and evaluation
+    # cell reads these through marimo references, so changing a value
+    # here re-runs and re-parameterizes the whole pipeline.
+    # ------------------------------------------------------------------
+    # Sensor sampling raster (H, W) in detector pixels.
+    SENSOR_RASTER = _get(design, "sensor_raster", (720, 1280))
+    # Physical pitch of one detector pixel (m). Wave propagation and the
+    # Monte Carlo image formation run on this grid.
+    SENSOR_PIXEL_PITCH = float(_get(design, "sensor_pixel_pitch", 3.45e-6))
+    # Physical pitch of one DOE cell (m). Set DOE_PIXEL_PITCH >
+    # SENSOR_PIXEL_PITCH so a single lithographic DOE structure covers
+    # DOE_PIXEL_PITCH / SENSOR_PIXEL_PITCH detector pixels per side; the
+    # DOE relief is upsampled piecewise-constant (nearest) onto the sensor
+    # grid before the phase mask is applied. A finer DOE than the sensor
+    # is representable but the sensor grid remains the sampling bottleneck.
+    DOE_PIXEL_PITCH = float(_get(design, "doe_pixel_pitch", 3.45e-6 * 3))
+    # DOE raster: sized so the DOE's physical extent matches the sensor
+    # field of view, SENSOR_RASTER * SENSOR_PIXEL_PITCH.
+    DOE_RASTER = (
+        int(round(SENSOR_RASTER[0] * SENSOR_PIXEL_PITCH / DOE_PIXEL_PITCH)),
+        int(round(SENSOR_RASTER[1] * SENSOR_PIXEL_PITCH / DOE_PIXEL_PITCH)),
+    )
+    # Peak DOE relief thickness (m): the MLP Softplus output is scaled
+    # to this many meters.
+    DOE_MAX_THICKNESS = float(_get(design, "doe_max_thickness", 5e-6))
+    # Search range for the trainable DOE-to-focal-plane offset delta (m).
+    # The DOE sits this far BEFORE the focal plane (lens side).
+    DOE_GAP_RANGE = _get(design, "doe_gap_range", (1e-5, 1e-3))
+    # Nominal DOE-to-focal-plane offset: the optimizer's starting point
+    # and the evaluation fallback when no trained gap was saved.
+    DOE_GAP = float(_get(design, "doe_gap", 500e-6))
+    # Spectral simulation band [min, max) in nm with the given step.
+    WAVELENGTH_BAND_NM = _get(design, "wavelength_band_nm", (380.0, 750.0))
+    WAVELENGTH_STEP_NM = float(_get(design, "wavelength_step_nm", 5.0))
+    # Entrance aperture: "rect" passes the full raster; "circular" keeps
+    # a disk whose radius is APERTURE_RADIUS_FRACTION of the half-width
+    # of the smaller raster dimension.
+    APERTURE_TYPE = str(_get(design, "aperture_type", "rect"))
+    APERTURE_RADIUS_FRACTION = float(_get(design, "aperture_radius_fraction", 0.5))
+    # Cauchy material table with columns "Wavelength (m)" and "n".
+    MATERIAL_XLSX = str(_get(paths_cfg, "material_xlsx", "mat_maP1275.xlsx"))
+    # Hyperspectral source sequence and transformed-frame output directory.
+    HYPERSPECTRAL_DIR = str(_get(
+        paths_cfg, "hyperspectral_dir",
+        "../../data/hyperspectral/Dyna_Spec_release/running-frog",
+    ))
+    TRANSFORMED_DIR = str(_get(paths_cfg, "transformed_dir", "transformed_running_frog"))
+    # Keyword arguments forwarded to train_mask(); override any key in the
+    # TOML [training] section (epochs, learning_rate, patch_size, ...).
+    TRAINING_CONFIG = dict(
+        epochs=1000,
+        learning_rate=1e-4,
+        photons_per_bin=1e5,
+        background_photons=1.0,
+        # Sensor-pitch patch: near-focus phase-to-intensity conversion
+        # cannot be represented on a pooled-down grid.
+        patch_size=256,
+        print_every=100,
+        monte_carlo_samples=2,
+        optim_space=False,
+    )
+    TRAINING_CONFIG.update(CONFIG.get("training", {}))
     return (
+        APERTURE_RADIUS_FRACTION,
+        APERTURE_TYPE,
         CREATE_RGB_VIDEO,
         CREATE_VIDEO,
         CubicSpline,
         DOE_GAP,
-        F,
+        DOE_GAP_RANGE,
+        DOE_MAX_THICKNESS,
+        DOE_PIXEL_PITCH,
+        DOE_RASTER,
+        HYPERSPECTRAL_DIR,
+        MATERIAL_XLSX,
         Path,
         RUN_DEBUG_TRAINING,
         RUN_HYPERSPECTRAL,
         RUN_TRAINING,
         SAVE,
+        SEED,
+        SENSOR_PIXEL_PITCH,
+        SENSOR_RASTER,
+        TRAINING_CONFIG,
+        TRANSFORMED_DIR,
         VIDEO_CODEC,
+        WAVELENGTH_BAND_NM,
+        WAVELENGTH_STEP_NM,
         device,
+        mo,
         nn,
         np,
         pd,
@@ -55,7 +176,9 @@ def _():
 
 
 @app.cell
-def _(F, nn, np, torch):
+def _(DOE_GAP_RANGE, SENSOR_PIXEL_PITCH, nn, np, torch):
+    from torch.utils.checkpoint import checkpoint
+
     class SineLayer(nn.Module):
         def __init__(self, in_features, out_features, bias=True, is_first=False, omega_0=30):
             super().__init__()
@@ -158,47 +281,46 @@ def _(F, nn, np, torch):
         morphology,
         d_morphology,
         d_morphology_y,
-        pool_size=128,
-        pixel_pitch=3.45e-6,
-        doe_offset=(1e-5, 1e-3),
-        relay_focal_length=19.0e-3,
-        relay_f_number=19.0 / 11.9,
+        pixel_pitch=SENSOR_PIXEL_PITCH,
+        doe_offset=DOE_GAP_RANGE,
         monte_carlo_samples=4,
         random_phases=None,
         raw_gap=1,
     ):
-        """Monte Carlo incoherent image formation through an image-plane DOE.
+        """Monte Carlo incoherent image formation through a near-focus DOE.
 
-        ``morphology`` is interpreted as the intensity in the primary-lens
-        intermediate image plane. Independent fixed random phases emulate
-        mutually incoherent spatial contributions. The DOE is one millimeter
-        after that plane, followed by an equal-focal-length 4f relay.
+        Bench geometry: the 35 mm compound lens (working F-number ~1.65) forms
+        its intermediate image at the focal plane; the DOE sits ``delta``
+        before that plane (lens side); a unit-magnification 4f relay re-images
+        the focal plane onto the sensor.
 
-        The calculation is performed at ``pool_size`` resolution for memory
-        reasons. The effective pixel pitch is scaled with the horizontal
-        downsampling factor.
+        Model, per wavelength:
+          1. ``morphology`` is the focal-plane intensity. The field there is
+             back-propagated (-delta) to the DOE plane.
+          2. The DOE imparts its chromatic phase exp(i 2pi/lambda (n-1) t).
+          3. The field is propagated (+delta) back to the focal plane. This
+             propagation is where the phase converts into intensity: a phase
+             mask placed in the plane that the relay images would cancel in
+             |.|^2 and encode nothing.
+          4. The relay is a 1:1 inversion on these grids -- its coherent
+             cutoff (NA/lambda ~ 5.7e5 cy/m at f/1.65) exceeds the Nyquist of
+             a 3.45 um pitch -- so it is applied as a flip.
+
+        ``thickness_map`` may be a single (H, W) map or a per-frame (F, H, W)
+        stack of windows of a larger DOE, so each frame samples the DOE region
+        its object sits on. Fixed random phase screens emulate mutually
+        incoherent spatial contributions; the derivative fields (dM/dsigma)
+        pass through the same linear operator.
+
+        The grid must run at (or below) the physical sensor pitch: the
+        phase-to-intensity conversion over delta requires spatial frequencies
+        with pi*lambda*delta*f^2 ~ 1, which a pooled-down grid cannot
+        represent. ``thickness_map`` may be given on the coarser DOE cell
+        grid; it is upsampled piecewise-constant onto the sensor grid here.
         """
-        target = (pool_size, pool_size) if isinstance(pool_size, int) else pool_size
-        h, w = target
         device = thickness_map.device
         dtype = thickness_map.dtype
-
-        def resize(x):
-            if x.ndim == 2:
-                # Single spatial map: add batch and channel dimensions.
-                return F.adaptive_avg_pool2d(x[None, None], target).squeeze(0).squeeze(0)
-            if x.ndim == 3:
-                # Frame stack: add only the channel dimension.
-                return F.adaptive_avg_pool2d(x.unsqueeze(1), target).squeeze(1)
-            raise ValueError(f"expected a 2D map or 3D frame stack, got shape {tuple(x.shape)}")
-
-        # The optimization grid is reduced before wave propagation. Use the
-        # horizontal scale so the physical propagation grid remains explicit.
-        effective_pitch = pixel_pitch * thickness_map.shape[-1] / w
-        thickness = resize(thickness_map)
-        morphology = resize(morphology)
-        d_morphology = resize(d_morphology)
-        d_morphology_y = resize(d_morphology_y)
+        h, w = morphology.shape[-2:]
 
         if random_phases is None:
             random_phases = 2 * torch.pi * torch.rand(
@@ -213,63 +335,99 @@ def _(F, nn, np, torch):
         # helper's standalone default.
         monte_carlo_samples = random_phases.shape[0]
 
-        # The MAP051919-A relay has a 19 mm focal length and approximately
-        # 11.9 mm entrance pupil, corresponding to about f/1.60.
-        yy, xx = torch.meshgrid(
-            (torch.arange(h, device=device, dtype=dtype) - (h - 1) / 2) * effective_pitch,
-            (torch.arange(w, device=device, dtype=dtype) - (w - 1) / 2) * effective_pitch,
-            indexing="ij",
-        )
-        relay_radius = relay_focal_length / (2 * relay_f_number)
-        relay_aperture = ((xx.square() + yy.square()) <= relay_radius**2).to(dtype)
+        if thickness_map.ndim == 2:
+            thickness = thickness_map[None].expand(morphology.shape[0], -1, -1)
+        else:
+            thickness = thickness_map
+
+        # The DOE may live on its own cell grid (DOE_RASTER at
+        # DOE_PIXEL_PITCH) coarser than the sensor simulation grid. Resample
+        # piecewise-constant (nearest) so a single DOE structure covers a
+        # block of detector pixels; autograd flows through the resample.
+        if thickness.shape[-2:] != (h, w):
+            thickness = torch.nn.functional.interpolate(
+                thickness[:, None], size=(h, w), mode="nearest-exact"
+            )[:, 0]
+
         z_min, z_max = doe_offset
 
-        def thin_lens(field, wavelength):
-            lens_phase = -torch.pi * (xx.square() + yy.square()) / (
-                wavelength * relay_focal_length
-            )
-            return field * relay_aperture * torch.exp(1j * lens_phase)
+        outputs = torch.zeros((morphology.shape[0], len(wavelengths), h, w), device=device, dtype=dtype)
+        dx_outputs = torch.zeros_like(outputs)
+        dy_outputs = torch.zeros_like(outputs)
 
-        def relay(field, wavelength):
-            # Input plane -> f -> lens 1 -> 2f -> lens 2 -> f -> output.
-            # The Fourier plane is at the midpoint between the relay lenses.
-            field = _angular_spectrum(field, wavelength, relay_focal_length, effective_pitch)
-            field = thin_lens(field, wavelength)
-            field = _angular_spectrum(field, wavelength, 2 * relay_focal_length, effective_pitch)
-            field = thin_lens(field, wavelength)
-            return _angular_spectrum(field, wavelength, relay_focal_length, effective_pitch)
+        def wavelength_response(thickness_in, raw_gap_in, wavelength, index):
+            """Incoherent Monte Carlo response for a single wavelength bin.
 
-        outputs = []
-        dx_outputs = []
-        dy_outputs = []
-        for k, (wavelength, index) in enumerate(zip(wavelengths, n_lambda)):
-            wavelength = wavelength.to(dtype=dtype)
-            phase = (2 * torch.pi / wavelength) * (index.to(dtype) - 1.0) * thickness
+            During training this callable runs under activation checkpointing:
+            the FFT graph for every wavelength bin and its phase screens is
+            rebuilt one bin at a time in backward, instead of holding the
+            whole ``wavelengths x monte_carlo_samples`` graph live at once.
+            The fixed ``random_phases`` screens and the constant morphology
+            fields make that recomputation deterministic.
+            """
+            raw_gap_in = torch.as_tensor(raw_gap_in, device=device, dtype=dtype)
+            z_gap = z_min + (z_max - z_min) * torch.sigmoid(raw_gap_in)
+            phase = (2 * torch.pi / wavelength) * (index - 1.0) * thickness_in
             doe = torch.exp(1j * phase)
-            sample_images = []
-            sample_dx = []
-            sample_dy = []
 
-            z_gap = z_min + (z_max - z_min) * torch.sigmoid(raw_gap)
+            def to_focal(field):
+                # Focal plane -> back-propagate (-z_gap) to the DOE plane,
+                # apply the DOE phase, propagate (+z_gap) back to the focal
+                # plane (where the chromatic phase converts to intensity),
+                # then the unit-magnification relay, which is a flip at
+                # sensor pitch. Mirrors transform_hyperspectral_slice.
+                field = _angular_spectrum(field, wavelength, -z_gap, pixel_pitch)
+                field = field * doe
+                field = _angular_spectrum(field, wavelength, z_gap, pixel_pitch)
+                return torch.flip(field, dims=(-2, -1))
+
+            sample_images_sum = 0
+            sample_dx_sum = 0
+            sample_dy_sum = 0
+
             for s in range(monte_carlo_samples):
                 random_phase = torch.exp(1j * random_phases[s])
                 field = torch.sqrt(morphology.clamp_min(0.0)) * random_phase
                 field_x = (0.5 * d_morphology / torch.sqrt(morphology.clamp_min(1e-12))) * random_phase
                 field_y = (0.5 * d_morphology_y / torch.sqrt(morphology.clamp_min(1e-12))) * random_phase
-                field = _angular_spectrum(field, wavelength, z_gap, effective_pitch) * doe
-                field_x = _angular_spectrum(field_x, wavelength, z_gap, effective_pitch) * doe
-                field_y = _angular_spectrum(field_y, wavelength, z_gap, effective_pitch) * doe
-                relay_field = relay(field, wavelength)
-                relay_field_x = relay(field_x, wavelength)
-                relay_field_y = relay(field_y, wavelength)
-                sample_images.append(torch.abs(relay_field).square())
-                sample_dx.append(2 * torch.real(torch.conj(relay_field) * relay_field_x))
-                sample_dy.append(2 * torch.real(torch.conj(relay_field) * relay_field_y))
-            outputs.append(torch.stack(sample_images).mean(0))
-            dx_outputs.append(torch.stack(sample_dx).mean(0))
-            dy_outputs.append(torch.stack(sample_dy).mean(0))
 
-        return torch.stack(outputs, dim=1), torch.stack(dx_outputs, dim=1), torch.stack(dy_outputs, dim=1)
+                relay_field = to_focal(field)
+                relay_field_x = to_focal(field_x)
+                relay_field_y = to_focal(field_y)
+
+                sample_images_sum = sample_images_sum + torch.abs(relay_field).square()
+                sample_dx_sum = sample_dx_sum + (2 * torch.real(torch.conj(relay_field) * relay_field_x))
+                sample_dy_sum = sample_dy_sum + (2 * torch.real(torch.conj(relay_field) * relay_field_y))
+
+            return (
+                sample_images_sum / monte_carlo_samples,
+                sample_dx_sum / monte_carlo_samples,
+                sample_dy_sum / monte_carlo_samples,
+            )
+
+        for k, (wavelength, index) in enumerate(zip(wavelengths, n_lambda)):
+            wavelength = wavelength.to(dtype=dtype)
+            index = index.to(dtype=dtype)
+            # Checkpoint only when a backward pass will actually consume the
+            # graph; eval/no-grad calls take the direct path.
+            trainable = torch.is_grad_enabled() and (
+                thickness.requires_grad
+                or (torch.is_tensor(raw_gap) and raw_gap.requires_grad)
+            )
+            if trainable:
+                out_k, dx_k, dy_k = checkpoint(
+                    wavelength_response,
+                    thickness, raw_gap, wavelength, index,
+                    use_reentrant=False,
+                )
+            else:
+                out_k, dx_k, dy_k = wavelength_response(thickness, raw_gap, wavelength, index)
+
+            outputs[:, k] = out_k
+            dx_outputs[:, k] = dx_k
+            dy_outputs[:, k] = dy_k
+
+        return outputs, dx_outputs, dy_outputs
 
     return (
         MaskThicknessMLP,
@@ -279,9 +437,11 @@ def _(F, nn, np, torch):
 
 
 @app.cell
-def _(np):
-    wavelengths = np.arange(380, 750, 5)
-    shape = (720, 1280)
+def _(SENSOR_RASTER, WAVELENGTH_BAND_NM, WAVELENGTH_STEP_NM, np):
+    wavelengths = np.arange(
+        WAVELENGTH_BAND_NM[0], WAVELENGTH_BAND_NM[1], WAVELENGTH_STEP_NM
+    )
+    shape = SENSOR_RASTER
     x = np.arange(0, shape[1])
     y = np.arange(0, shape[0])
 
@@ -328,9 +488,25 @@ def _(np, shape, sigma_x, sigma_y, x, y):
 
 
 @app.cell
-def _(CubicSpline, pd, torch, wavelengths):
-    # 1. Load the target material data
-    df = pd.read_excel('mat_maP1275.xlsx')
+def _(MATERIAL_XLSX, Path, mo):
+    # Browse for an alternative Cauchy table; the browser starts in the
+    # configured material directory so it also works headless, where no
+    # selection is possible and the interpolation cell falls back to
+    # MATERIAL_XLSX.
+    cauchy = mo.ui.file_browser(
+        filetypes=['.csv', '.xls', '.xlsx'],
+        initial_path=str(Path(MATERIAL_XLSX).resolve().parent),
+    )
+    cauchy
+    return (cauchy,)
+
+
+@app.cell
+def _(CubicSpline, MATERIAL_XLSX, cauchy, pd, torch, wavelengths):
+    # 1. Load the target material data: the file-browser selection overrides
+    # the configured MATERIAL_XLSX default when a file is picked.
+    material_path = cauchy.value[0].path if cauchy.value else MATERIAL_XLSX
+    df = pd.read_excel(material_path)
     raw_wl = df['Wavelength (m)'].values
     raw_n = df['n'].values
 
@@ -345,39 +521,62 @@ def _(CubicSpline, pd, torch, wavelengths):
     wavelengths_tensor = torch.tensor(wavelengths_m, dtype=torch.float32)
 
     print(f"Tensor shape: {n_lambda.shape}") # Should output torch.Size([74])
+    wavelengths_tensor
     return n_lambda, wavelengths_tensor
 
 
 @app.cell
 def _(
+    APERTURE_RADIUS_FRACTION,
+    APERTURE_TYPE,
+    DOE_MAX_THICKNESS,
+    DOE_RASTER,
     MaskThicknessMLP,
-    device,
-    generate_psf_stack,
-    n_lambda,
     torch,
-    wavelengths_tensor,
 ):
-    H, W = 720, 1280
+    # The MLP parameterizes the DOE relief on its own cell grid; the
+    # normalized coordinates span the full DOE physical extent.
+    H, W = DOE_RASTER
     y_model = torch.linspace(-1, 1, H)
     x_model = torch.linspace(-1, 1, W)
     yy, xx = torch.meshgrid(y_model, x_model, indexing='ij')
     coords = torch.stack([xx, yy], dim=-1)
 
     mlp = MaskThicknessMLP()
-    # Generate thickness map in meters (scaled by max expected height, e.g., 5 micrometers)
+    # Generate thickness map in meters, scaled by the configured peak relief.
     thickness_flat = mlp(coords.reshape(-1, 2))
-    thickness_map = thickness_flat.reshape(H, W) * 5e-6 
+    thickness_map = thickness_flat.reshape(H, W) * DOE_MAX_THICKNESS
 
-    aperture_mask = torch.ones((H, W)) # Open circular or full rectangular aperture
+    if APERTURE_TYPE == "circular":
+        # Stop band outside a disk of radius APERTURE_RADIUS_FRACTION of
+        # the half-width of the smaller raster dimension.
+        radius_px = APERTURE_RADIUS_FRACTION * min(H, W) / 2.0
+        rows = torch.arange(H, dtype=torch.float32)[:, None] - (H - 1) / 2.0
+        cols = torch.arange(W, dtype=torch.float32)[None, :] - (W - 1) / 2.0
+        aperture_mask = ((rows * rows + cols * cols) <= radius_px**2).float()
+    elif APERTURE_TYPE == "rect":
+        aperture_mask = torch.ones((H, W)) # Full rectangular aperture
+    else:
+        raise ValueError(
+            f"unknown APERTURE_TYPE {APERTURE_TYPE!r}; use 'rect' or 'circular'"
+        )
 
     # Compute the multi-wavelength PSF stack
-    psf_stack = generate_psf_stack(thickness_map, wavelengths_tensor, n_lambda, aperture_mask, device)
-    print("Generated PSF Stack Shape:", psf_stack.shape) # Expected: (74, 720, 1280)
+    #psf_stack = generate_psf_stack(thickness_map, wavelengths_tensor, n_lambda, aperture_mask, device)
+    #print("Generated PSF Stack Shape:", psf_stack.shape) # Expected: (74, 720, 1280)
     return aperture_mask, coords, mlp
 
 
 @app.cell
-def _(nn, torch):
+def _(
+    DOE_GAP,
+    DOE_GAP_RANGE,
+    DOE_MAX_THICKNESS,
+    DOE_PIXEL_PITCH,
+    SENSOR_PIXEL_PITCH,
+    nn,
+    torch,
+):
     def crlb_from_images(
         mean_image, dx_image, dy_image, wavelengths_nm,
         photons_per_bin=1e5, background_photons=1.0, frame_stride=10,
@@ -443,19 +642,29 @@ def _(nn, torch):
         learning_rate=1e-4,
         photons_per_bin=1e5,
         background_photons=1.0,
-        pool_size=120,
+        patch_size=256,
         print_every=100,
-        monte_carlo_samples=1,
+        monte_carlo_samples=2,
         frame_stride=10,
         trainable_gap=True,
-        initial_gap=5e-4,
+        initial_gap=DOE_GAP,
         random_seed=None,
-        doe_offset=(1e-5, 1e-3),
+        doe_offset=DOE_GAP_RANGE,
         optim_space=True,
         optim_spectral=True,
     ):
-        """Optimize an image-plane DOE with fixed-phase incoherent MC."""
-        z_min, z_max = 1e-5, 1e-3
+        """Optimize a near-focus image-plane DOE with fixed-phase incoherent MC.
+
+        The simulation runs at the physical sensor pitch on a ``patch_size``
+        window cropped around each frame's blob centroid: near-focus
+        phase-to-intensity conversion needs spatial frequencies that a pooled
+        grid cannot represent. The matching DOE windows are cropped from the
+        full thickness map on the DOE cell grid every epoch, so each frame
+        samples the mask region its object sits on. Sensor patches are snapped
+        to DOE cell boundaries so the two windows cover the same physical
+        region.
+        """
+        z_min, z_max = doe_offset
         initial_position = torch.as_tensor(
             (initial_gap - z_min) / (z_max - z_min),
             device=coords.device, dtype=coords.dtype,
@@ -469,31 +678,70 @@ def _(nn, torch):
         best_thickness = None
         best_psf = None
         best_gap = None
+        best_state = None
         flat_coords = coords.reshape(-1, 2)
-        target = (pool_size, pool_size) if isinstance(pool_size, int) else pool_size
+        p = patch_size
         morphology = morphology[::frame_stride]
         d_morphology = d_morphology[::frame_stride]
         d_morphology_y = d_morphology_y[::frame_stride]
+
+        # Locate each frame's blob by its intensity centroid so the sensor-pitch
+        # patch can follow the object across the DOE.
+        with torch.no_grad():
+            weight = morphology.clamp_min(0.0)
+            norm = weight.sum(dim=(-2, -1)).clamp_min(1e-12)
+            rows = torch.arange(weight.shape[-2], device=weight.device, dtype=weight.dtype)
+            cols = torch.arange(weight.shape[-1], device=weight.device, dtype=weight.dtype)
+            centroid_y = (weight.sum(-1) * rows).sum(-1) / norm
+            centroid_x = (weight.sum(-2) * cols).sum(-1) / norm
+        full_h, full_w = morphology.shape[-2:]
+        doe_h, doe_w = coords.shape[:2]
+        # Detector pixels covered by one DOE cell per side.
+        sensor_px_per_doe_cell = DOE_PIXEL_PITCH / SENSOR_PIXEL_PITCH
+        p_doe = min(max(1, int(round(p / sensor_px_per_doe_cell))), doe_h, doe_w)
+        windows = []      # sensor-pitch patches: (y0, x0), size p
+        doe_windows = []  # DOE-cell windows: (y0, x0), size p_doe
+        for i in range(morphology.shape[0]):
+            y0_d = int(torch.round((centroid_y[i] - p / 2) / sensor_px_per_doe_cell))
+            x0_d = int(torch.round((centroid_x[i] - p / 2) / sensor_px_per_doe_cell))
+            y0_d = max(0, min(y0_d, doe_h - p_doe))
+            x0_d = max(0, min(x0_d, doe_w - p_doe))
+            # Snap the sensor patch to the DOE cell start so both windows
+            # cover the same physical region.
+            y0 = max(0, min(int(round(y0_d * sensor_px_per_doe_cell)), full_h - p))
+            x0 = max(0, min(int(round(x0_d * sensor_px_per_doe_cell)), full_w - p))
+            windows.append((y0, x0))
+            doe_windows.append((y0_d, x0_d))
+
+        def crop_stack(stack):
+            return torch.stack([stack[i, y0:y0 + p, x0:x0 + p] for i, (y0, x0) in enumerate(windows)])
+
+        morphology = crop_stack(morphology)
+        d_morphology = crop_stack(d_morphology)
+        d_morphology_y = crop_stack(d_morphology_y)
+
         if random_seed is not None:
             generator = torch.Generator(device=morphology.device)
             generator.manual_seed(random_seed)
         else:
             generator = None
         random_phases = 2 * torch.pi * torch.rand(
-            (monte_carlo_samples, morphology.shape[0], target[0], target[1]),
+            (monte_carlo_samples, morphology.shape[0], p, p),
             device=morphology.device, dtype=coords.dtype,
             generator=generator,
         )
 
         for epoch in range(epochs):
             optimizer.zero_grad(set_to_none=True)
-            thickness_map = mlp(flat_coords).reshape(coords.shape[:2]) * 5e-6
+            thickness_full = mlp(flat_coords).reshape(coords.shape[:2]) * DOE_MAX_THICKNESS
+            thickness_windows = torch.stack(
+                [thickness_full[y0:y0 + p_doe, x0:x0 + p_doe] for (y0, x0) in doe_windows]
+            )
             mean_image, dx_image, dy_image = generate_incoherent_relay_stack(
-                thickness_map, wavelengths, n_lambda,
+                thickness_windows, wavelengths, n_lambda,
                 morphology,
                 d_morphology,
                 d_morphology_y,
-                pool_size=pool_size,
                 doe_offset=doe_offset,
                 random_phases=random_phases,
                 raw_gap=raw_gap
@@ -517,9 +765,12 @@ def _(nn, torch):
                 best_loss = loss.detach().item()
                 # Keep snapshots for visualization without retaining the
                 # current epoch's autograd/FFT graph.
-                best_thickness = thickness_map.detach().clone()
+                best_thickness = thickness_windows.detach().clone()
                 best_psf = mean_image.detach().clone()
                 best_gap = raw_gap.detach().clone()
+                best_state = {
+                    name: value.detach().clone() for name, value in mlp.state_dict().items()
+                }
 
             if print_every and (epoch == 0 or (epoch + 1) % print_every == 0):
                 print(
@@ -528,15 +779,17 @@ def _(nn, torch):
                     f"mean FI={float(fisher.mean().detach()):.5g}"
                 )
 
-        return history, best_loss, best_thickness, best_psf, best_gap
+        return history, best_loss, best_thickness, best_psf, best_gap, best_state
 
     return (train_mask,)
 
 
 @app.cell
 def _(
+    DOE_MAX_THICKNESS,
     M_stack,
     RUN_TRAINING,
+    TRAINING_CONFIG,
     aperture_mask,
     coords,
     dM_dsigma_x_stack,
@@ -552,7 +805,7 @@ def _(
 ):
     if RUN_TRAINING:
         with torch.amp.autocast('cuda', enabled=False):
-            history, loss, thickness, psf, gap = train_mask(
+            history, loss, thickness, psf, gap, best_state = train_mask(
                 mlp.to(device),
                 coords.to(device),
                 wavelengths_tensor.to(device),
@@ -563,35 +816,49 @@ def _(
                 torch.from_numpy(M_stack).to(device),
                 torch.from_numpy(dM_dsigma_x_stack).to(device),
                 torch.from_numpy(dM_dsigma_y_stack).to(device),
-                epochs=1000,
-                learning_rate=1e-4,
-                photons_per_bin=1e5,
-                background_photons=1.0,
-                pool_size=64,
-                print_every=100,
-                monte_carlo_samples=4,
-                optim_space=False,
+                # All optimizer/simulation knobs come from TRAINING_CONFIG:
+                # the defaults above plus any [training] TOML overrides.
+                **TRAINING_CONFIG,
             )
+        # Restore the best-epoch weights and regenerate the full DOE map used
+        # by the saved profile and the hyperspectral evaluation pipeline.
+        mlp.load_state_dict(best_state)
+        with torch.no_grad():
+            thickness_full = (
+                mlp(coords.reshape(-1, 2).to(device)).reshape(coords.shape[:2]) * DOE_MAX_THICKNESS
+            ).cpu()
     else:
-        history, loss, thickness, psf, gap = [[], float('inf'), None, None, None]
-    return gap, psf, thickness
+        history, loss, thickness, psf, gap, best_state = [], float('inf'), None, None, None, None
+        thickness_full = None
+    return gap, psf, thickness, thickness_full
 
 
 @app.cell
-def _(gap, n_lambda, psf, thickness, torch, wavelengths_tensor):
+def _(
+    DOE_GAP_RANGE,
+    DOE_PIXEL_PITCH,
+    SENSOR_PIXEL_PITCH,
+    gap,
+    mo,
+    n_lambda,
+    psf,
+    thickness,
+    torch,
+    wavelengths_tensor,
+):
     from matplotlib import pyplot as plt
-    import marimo as mo
     def _():
         """Diagnostic plots for DOE phase and propagated incoherent intensity."""
-        z_min = 1e-5
-        z_max = 1e-3
+        z_min, z_max = DOE_GAP_RANGE
         if thickness is not None and psf is not None:
             z = z_min + (z_max - z_min) * torch.sigmoid(gap)
             print(f"Optimal z distance: {z.detach().cpu().item()}" )
-            thickness_cpu = thickness.detach().cpu()
+            # ``thickness`` is the per-frame DOE window stack [frame, y, x] on
+            # the DOE cell grid; ``psf`` is the [frame, wavelength, y, x] stack
+            # on the sensor grid. Both span the same physical patch.
             image_stack = psf.detach().cpu()
+            thickness_window = thickness.detach().cpu()[0]
 
-            # The optical stack is [frame, wavelength, y, x].
             frame_index = 0
             wavelength_index = int(torch.argmin(torch.abs(
                 wavelengths_tensor.detach().cpu() - 550e-9
@@ -599,14 +866,10 @@ def _(gap, n_lambda, psf, thickness, torch, wavelengths_tensor):
             wavelength = wavelengths_tensor[wavelength_index].detach().cpu()
             refractive_index = n_lambda[wavelength_index].detach().cpu()
 
-            # Match the 128x128 propagation grid used by the relay simulation.
-            thickness_small = torch.nn.functional.adaptive_avg_pool2d(
-                thickness_cpu[None, None], (image_stack.shape[-2], image_stack.shape[-1])
-            ).squeeze()
             phase = (
                 2 * torch.pi / wavelength
                 * (refractive_index - 1.0)
-                * thickness_small
+                * thickness_window
             )
             wrapped_phase = torch.angle(torch.exp(1j * phase))
             phase_cycles = phase / (2 * torch.pi)
@@ -614,19 +877,20 @@ def _(gap, n_lambda, psf, thickness, torch, wavelengths_tensor):
             log_intensity = torch.log10(intensity.clamp_min(1e-12))
 
             fig, axes = plt.subplots(2, 3, figsize=(16, 9), constrained_layout=True)
-            full_extent = [0, thickness_cpu.shape[1] * 3.45,
-                           thickness_cpu.shape[0] * 3.45, 0]
-            small_pitch = 3.45 * thickness_cpu.shape[1] / image_stack.shape[-1]
-            small_extent = [0, image_stack.shape[-1] * small_pitch,
-                            image_stack.shape[-2] * small_pitch, 0]
+            # Each grid gets its own physical pitch; both extents cover the
+            # same patch of the scene.
+            extent_doe = [0, thickness_window.shape[1] * DOE_PIXEL_PITCH * 1e6,
+                          thickness_window.shape[0] * DOE_PIXEL_PITCH * 1e6, 0]
+            extent_sensor = [0, intensity.shape[1] * SENSOR_PIXEL_PITCH * 1e6,
+                             intensity.shape[0] * SENSOR_PIXEL_PITCH * 1e6, 0]
 
             plots = [
-                (thickness_cpu * 1e6, full_extent, "viridis", "Thickness (µm)", "DOE thickness"),
-                (wrapped_phase, small_extent, "twilight", None, "Wrapped DOE phase"),
-                (phase_cycles, small_extent, "RdBu_r", None, "DOE phase (cycles)"),
-                (intensity, small_extent, "gray", None, "Mean output intensity"),
-                (log_intensity, small_extent, "magma", None, "Log output intensity"),
-                (image_stack[frame_index].mean(0), small_extent, "gray", None,
+                (thickness_window * 1e6, extent_doe, "viridis", "Thickness (µm)", "DOE window thickness"),
+                (wrapped_phase, extent_doe, "twilight", None, "Wrapped DOE phase"),
+                (phase_cycles, extent_doe, "RdBu_r", None, "DOE phase (cycles)"),
+                (intensity, extent_sensor, "gray", None, "Mean output intensity"),
+                (log_intensity, extent_sensor, "magma", None, "Log output intensity"),
+                (image_stack[frame_index].mean(0), extent_sensor, "gray", None,
                  "Wavelength-averaged intensity"),
             ]
             for ax, (data, extent, cmap, label, title) in zip(axes.flat, plots):
@@ -652,20 +916,17 @@ def _(gap, n_lambda, psf, thickness, torch, wavelengths_tensor):
 @app.cell
 def _(n_lambda, plt, psf, thickness, torch, wavelengths_tensor):
     def _():
-        """Multi-wavelength phase and relay-aperture diagnostics."""
+        """Multi-wavelength phase and per-wavelength output diagnostics."""
         if thickness is not None and psf is not None:
-            output_size = psf.shape[-1]
-            thickness_small = torch.nn.functional.adaptive_avg_pool2d(
-                thickness[None, None], (output_size, output_size)
-            ).squeeze()
+            thickness_window = thickness[0].detach()
             wavelength_indices = torch.linspace(
                 0, wavelengths_tensor.numel() - 1, 5, dtype=torch.long
             )
             fig, axes = plt.subplots(2, 5, figsize=(18, 7), constrained_layout=True)
             for column, k in enumerate(wavelength_indices.tolist()):
-                phase = (2 * torch.pi / wavelengths_tensor[k]) * (n_lambda[k] - 1.0) * thickness_small
-                wrapped = torch.angle(torch.exp(1j * phase)).detach().cpu()
-                cycles = (phase / (2 * torch.pi)).detach().cpu()
+                phase = (2 * torch.pi / wavelengths_tensor[k]) * (n_lambda[k] - 1.0) * thickness_window
+                wrapped = torch.angle(torch.exp(1j * phase)).cpu()
+                cycles = (phase / (2 * torch.pi)).cpu()
                 wavelength_nm = wavelengths_tensor[k].item() * 1e9
                 im0 = axes[0, column].imshow(wrapped, cmap="twilight", vmin=-torch.pi, vmax=torch.pi)
                 axes[0, column].set_title(f"{wavelength_nm:.0f} nm")
@@ -675,19 +936,21 @@ def _(n_lambda, plt, psf, thickness, torch, wavelengths_tensor):
             fig.suptitle("DOE phase variation across wavelength")
             plt.show()
 
-            effective_pitch = 3.45e-6 * thickness.shape[-1] / output_size
-            coordinate = (torch.arange(output_size, dtype=thickness.dtype) - (output_size - 1) / 2) * effective_pitch
-            yy, xx = torch.meshgrid(coordinate, coordinate, indexing="ij")
-            relay_radius = 11.9e-3 / 2
-            aperture = ((xx.square() + yy.square()) <= relay_radius**2).cpu()
+            # Per-wavelength sensor images and their difference: the spectral
+            # encoding this design actually produces.
+            image_stack = psf[0].detach().cpu()
+            lo = image_stack[0]
+            hi = image_stack[-1]
             fig, axes = plt.subplots(1, 3, figsize=(14, 4), constrained_layout=True)
-            axes[0].imshow(aperture, cmap="gray")
-            axes[0].set_title("Relay aperture")
-            axes[1].imshow(thickness_small.detach().cpu() * 1e6, cmap="viridis")
-            axes[1].set_title("Downsampled thickness (µm)")
-            axes[2].imshow(psf[0].detach().cpu().mean(0), cmap="gray")
-            axes[2].set_title("Mean output, frame 0")
-            for ax in axes:
+            axes[0].imshow(thickness_window.cpu() * 1e6, cmap="viridis")
+            axes[0].set_title("DOE window thickness (µm)")
+            axes[1].imshow(lo / lo.max(), cmap="gray")
+            axes[1].set_title(f"Output @ {wavelengths_tensor[0].item() * 1e9:.0f} nm")
+            diff = (hi - lo) / lo.max()
+            im2 = axes[2].imshow(diff, cmap="RdBu_r", vmin=-0.5, vmax=0.5)
+            axes[2].set_title(f"Output diff @ {wavelengths_tensor[-1].item() * 1e9:.0f} nm")
+            fig.colorbar(im2, ax=axes[2], shrink=0.8)
+            for ax in axes[:2]:
                 ax.set_axis_off()
         return plt.show()
 
@@ -728,7 +991,7 @@ def _(
                     generate_psf_stack, generate_incoherent_relay_stack,
                     torch.from_numpy(M_stack).to(device), torch.from_numpy(dM_dsigma_x_stack).to(device),
                     torch.from_numpy(dM_dsigma_y_stack).to(device), epochs=20, learning_rate=1e-4,
-                    pool_size=32, monte_carlo_samples=monte_carlo_samples, random_seed=seed, print_every=0,
+                    patch_size=128, monte_carlo_samples=monte_carlo_samples, random_seed=seed, print_every=0,
                 )
                 debug_results[(monte_carlo_samples, seed)] = result[0]
             fig, ax = plt.subplots(figsize=(8, 4))
@@ -745,94 +1008,61 @@ def _(
 
 
 @app.cell
-def _(SAVE, np, psf, thickness):
-    if SAVE:
-        np.save("profile", thickness.cpu())
-        np.save("psf", psf.cpu())
+def _(DOE_GAP_RANGE, SAVE, gap, np, psf, thickness_full, torch):
+    if SAVE and thickness_full is not None:
+        # Full DOE thickness map (DOE_RASTER at DOE_PIXEL_PITCH, meters) for the
+        # hyperspectral evaluation pipeline, plus the trained DOE-to-focal-plane
+        # offset so evaluation uses the gap that was actually optimized.
+        np.save("profile", thickness_full.numpy())
+        np.save("psf", psf.cpu().numpy())
+        z_min, z_max = DOE_GAP_RANGE
+        np.save("gap", z_min + (z_max - z_min) * float(torch.sigmoid(gap)))
     return
 
 
 @app.cell
-def _(torch):
-    def make_relay_operator(
-        height,
-        width,
-        device,
-        dtype,
-        pixel_pitch=3.45e-6,
-        relay_focal_length=19.0e-3,
-        relay_f_number=19.0 / 11.9,
-    ):
-        """Build reusable wavelength-dependent propagation operators."""
-        yy, xx = torch.meshgrid(
-            (torch.arange(height, device=device, dtype=dtype) - (height - 1) / 2) * pixel_pitch,
-            (torch.arange(width, device=device, dtype=dtype) - (width - 1) / 2) * pixel_pitch,
-            indexing="ij",
-        )
-        fy = torch.fft.fftfreq(height, d=pixel_pitch, device=device)
-        fx = torch.fft.fftfreq(width, d=pixel_pitch, device=device)
-        fy, fx = torch.meshgrid(fy, fx, indexing="ij")
-        relay_radius = relay_focal_length / (2 * relay_f_number)
-        relay_aperture = ((xx.square() + yy.square()) <= relay_radius**2).to(dtype)
-
-        def propagate(field, wavelength, distance):
-            argument = 1.0 - (wavelength * fx) ** 2 - (wavelength * fy) ** 2
-            transfer = torch.exp(
-                1j * (2 * torch.pi / wavelength) * distance * torch.sqrt(argument.clamp_min(0.0))
-            )
-            transfer = transfer * (argument >= 0).to(transfer.dtype)
-            return torch.fft.ifft2(
-                torch.fft.fft2(field, norm="ortho") * transfer, norm="ortho"
-            )
-
-        def relay(field, wavelength):
-            lens_phase = -torch.pi * (xx.square() + yy.square()) / (
-                wavelength * relay_focal_length
-            )
-            lens = relay_aperture * torch.exp(1j * lens_phase)
-            field = propagate(field, wavelength, relay_focal_length) * lens
-            field = propagate(field, wavelength, 2 * relay_focal_length) * lens
-            return propagate(field, wavelength, relay_focal_length)
-
-        return propagate, relay
-
-
+def _(DOE_GAP, SENSOR_PIXEL_PITCH, torch):
     def transform_hyperspectral_slice(
         intensity_slice,
         wavelength,
         thickness_map,
         refractive_index,
-        pixel_pitch=3.45e-6,
-        doe_gap=1e-5,
-        relay_focal_length=19.0e-3,
-        relay_f_number=19.0 / 11.9,
+        pixel_pitch=SENSOR_PIXEL_PITCH,
+        doe_gap=DOE_GAP,
         monte_carlo_samples=1,
-        propagate=None,
-        relay=None,
         generator=None,
     ):
-        """Transform one ``(H, W)`` wavelength slice without retaining a cube."""
+        """Apply the near-focus DOE model to one ``(H, W)`` wavelength slice.
+
+        ``intensity_slice`` is the focal-plane intensity of the 35 mm lens at
+        this wavelength. The field is back-propagated (-doe_gap) to the DOE
+        plane, multiplied by the DOE phase, propagated (+doe_gap) back to the
+        focal plane -- where the chromatic phase converts to intensity -- and
+        then relayed 1:1 to the sensor. The unit-magnification f/1.65 relay is
+        a pure inversion at sensor pitch (its coherent cutoff exceeds the grid
+        Nyquist), so the relay is applied as a flip.
+
+        ``thickness_map`` may be on the DOE cell grid; it is resampled
+        piecewise-constant onto the slice raster, so one DOE structure stays
+        one block of detector pixels. Both rasters are assumed to span the
+        same physical field of view.
+        """
         if intensity_slice.ndim != 2:
             raise ValueError(f"intensity_slice must be 2D, got {tuple(intensity_slice.shape)}")
         device = thickness_map.device
         dtype = thickness_map.dtype
-        height, width = intensity_slice.shape
-        if propagate is None or relay is None:
-            propagate, relay = make_relay_operator(
-                height, width, device, dtype, pixel_pitch,
-                relay_focal_length, relay_f_number,
-            )
         wavelength = torch.as_tensor(wavelength, device=device, dtype=dtype)
         refractive_index = torch.as_tensor(refractive_index, device=device, dtype=dtype)
         intensity_slice = intensity_slice.to(device=device, dtype=dtype).clamp_min(0.0)
         thickness_map = thickness_map.to(device=device, dtype=dtype)
         if thickness_map.shape != intensity_slice.shape:
-            # The learned design and video sensor may have different raster
-            # sizes. Resample the physical thickness map once per target
-            # raster rather than relying on implicit broadcasting.
+            # The learned DOE lives on its own cell raster. Resample it
+            # piecewise-constant (nearest) onto the target slice raster rather
+            # than relying on implicit broadcasting; bilinear would smear a
+            # single lithographic structure across cell boundaries.
             thickness_map = torch.nn.functional.interpolate(
                 thickness_map[None, None], size=intensity_slice.shape,
-                mode="bilinear", align_corners=False,
+                mode="nearest-exact",
             ).squeeze(0).squeeze(0)
         phase = (2 * torch.pi / wavelength) * (refractive_index - 1.0) * thickness_map
         doe = torch.exp(1j * phase)
@@ -843,9 +1073,11 @@ def _(torch):
             )
             field = torch.sqrt(intensity_slice) * torch.exp(1j * random_phase)
             if doe_gap > 0:
-                field = propagate(field, wavelength, doe_gap)
-            output_field = relay(field * doe, wavelength)
-            outputs.append(output_field.abs().square())
+                field = _angular_spectrum(field, wavelength, -doe_gap, pixel_pitch)
+            field = field * doe
+            if doe_gap > 0:
+                field = _angular_spectrum(field, wavelength, doe_gap, pixel_pitch)
+            outputs.append(torch.flip(field, dims=(-2, -1)).abs().square())
         return torch.stack(outputs).mean(0)
 
 
@@ -853,8 +1085,8 @@ def _(torch):
         mat_path,
         thickness_map,
         n_for_wavelength,
-        pixel_pitch=3.45e-6,
-        doe_gap=1e-5,
+        pixel_pitch=SENSOR_PIXEL_PITCH,
+        doe_gap=DOE_GAP,
         wavelength_stride=1,
         wavelength_range=None,
         monte_carlo_samples=1,
@@ -873,27 +1105,24 @@ def _(torch):
             img = mat["img"]
             wavelengths = np.asarray(mat["wavelength"]).squeeze()
             if wavelength_range:
-                min_lambda_idx, max_lambda_idx = (int((w-400)/2) for w in wavelength_range)
-
-                wavelengths = wavelengths[min_lambda_idx:max_lambda_idx]
-
-                img = img[min_lambda_idx:max_lambda_idx, :, :]
+                # Select by value against the file's own wavelength axis rather
+                # than assuming a fixed 400 nm / 2 nm grid.
+                lo = int(np.searchsorted(wavelengths, wavelength_range[0], side="left"))
+                hi = int(np.searchsorted(wavelengths, wavelength_range[1], side="right"))
+                wavelengths = wavelengths[lo:hi]
+                img = img[lo:hi, :, :]
             if img.shape[0] != wavelengths.size:
                 raise ValueError(f"expected img.shape[0] == len(wavelength), got {img.shape} and {wavelengths.shape}")
             source_wavelengths = wavelengths.astype(np.float64)
             if np.nanmax(np.abs(source_wavelengths)) < 1e-3:
                 source_wavelengths = source_wavelengths * 1e9
             indices = list(range(0, len(source_wavelengths), wavelength_stride))
-            height, width = img.shape[-2:]
             # These files are chunked with all wavelengths in each chunk:
             # (151, 204, 1). Reading each wavelength directly would cause
             # repeated decompression. Load only this one temporal frame into
             # CPU RAM, then transfer one slice at a time to the GPU.
             img_cpu = np.asarray(img[...])
             local_thickness = thickness_map.to(device=device)
-            propagate, relay = make_relay_operator(
-                height, width, device, local_thickness.dtype, pixel_pitch
-            )
             generator = torch.Generator(device=device)
             if random_seed is not None:
                 generator.manual_seed(random_seed)
@@ -907,7 +1136,7 @@ def _(torch):
                         source_slice, wavelength_m, local_thickness, n_value,
                         pixel_pitch=pixel_pitch, doe_gap=doe_gap,
                         monte_carlo_samples=monte_carlo_samples,
-                        propagate=propagate, relay=relay, generator=generator,
+                        generator=generator,
                     )
                 yield wavelength_nm, transformed.detach().cpu()
 
@@ -916,8 +1145,8 @@ def _(torch):
         sequence_dir,
         thickness_map,
         n_for_wavelength,
-        pixel_pitch=3.45e-6,
-        doe_gap=1e-5,
+        pixel_pitch=SENSOR_PIXEL_PITCH,
+        doe_gap=DOE_GAP,
         wavelength_stride=1,
         monte_carlo_samples=1,
         device=None,
@@ -948,8 +1177,8 @@ def _(torch):
         sequence_dir,
         thickness_map,
         n_for_wavelength,
-        pixel_pitch=3.45e-6,
-        doe_gap=1e-5,
+        pixel_pitch=SENSOR_PIXEL_PITCH,
+        doe_gap=DOE_GAP,
         wavelength_stride=1,
         wavelength_range=None,
         monte_carlo_samples=1,
@@ -1009,8 +1238,12 @@ def _(torch):
 def _(
     CubicSpline,
     DOE_GAP,
+    HYPERSPECTRAL_DIR,
+    MATERIAL_XLSX,
     Path,
     RUN_HYPERSPECTRAL,
+    SEED,
+    TRANSFORMED_DIR,
     np,
     pd,
     torch,
@@ -1020,10 +1253,14 @@ def _(
     def _():
         """Process the complete running-frog sequence one frame/slice at a time."""
         if RUN_HYPERSPECTRAL:
-            sequence_dir = Path("../../data/hyperspectral/Dyna_Spec_release/running-frog")
-            output_dir = Path("transformed_running_frog")
-            material = pd.read_excel("mat_maP1275.xlsx")
+            sequence_dir = Path(HYPERSPECTRAL_DIR)
+            output_dir = Path(TRANSFORMED_DIR)
+            material = pd.read_excel(MATERIAL_XLSX)
             thickness = torch.from_numpy(np.load('profile.npy'))
+            # Prefer the DOE-to-focal-plane offset that was actually trained;
+            # fall back to the nominal DOE_GAP when no training result exists.
+            gap_path = Path("gap.npy")
+            doe_gap = float(np.load(gap_path)) if gap_path.exists() else DOE_GAP
             n_interpolator = CubicSpline(
                 material["Wavelength (m)"].to_numpy(),
                 material["n"].to_numpy(),
@@ -1036,12 +1273,12 @@ def _(
                 sequence_dir,
                 thickness,
                 n_for_wavelength,
-                doe_gap=DOE_GAP,
+                doe_gap=doe_gap,
                 wavelength_stride=1,
                 #wavelength_range=(540, 560),
                 monte_carlo_samples=4,
                 device=thickness.device,
-                random_seed=random.randint(0, 2048),
+                random_seed=SEED if SEED is not None else random.randint(0, 2048),
                 output_dir=output_dir,
             ):
                 print(
@@ -1058,13 +1295,13 @@ def _(
 
 
 @app.cell
-def _(CREATE_VIDEO, Path, VIDEO_CODEC, np):
+def _(CREATE_VIDEO, Path, TRANSFORMED_DIR, VIDEO_CODEC, np):
     def _():
         """Write the transformed running-frog frames as a 1/40 FPS video."""
         if CREATE_VIDEO:
             import cv2
 
-            transformed_dir = Path("transformed_running_frog")
+            transformed_dir = Path(TRANSFORMED_DIR)
             video_path = transformed_dir / "running_frog_transformed_lossless.mkv"
             frame_paths = sorted(transformed_dir.glob("frame_*.npy"))
             if not frame_paths:
@@ -1114,15 +1351,22 @@ def _(CREATE_VIDEO, Path, VIDEO_CODEC, np):
 
 
 @app.cell
-def _(CREATE_RGB_VIDEO, Path, VIDEO_CODEC, np):
+def _(
+    CREATE_RGB_VIDEO,
+    HYPERSPECTRAL_DIR,
+    Path,
+    TRANSFORMED_DIR,
+    VIDEO_CODEC,
+    np,
+):
     def _():
         """Write an interpolated RGB comparison video from the source spectra."""
         if CREATE_RGB_VIDEO:
             import cv2
             import h5py
 
-            sequence_dir = Path("../../data/hyperspectral/Dyna_Spec_release/running-frog")
-            output_dir = Path("transformed_running_frog")
+            sequence_dir = Path(HYPERSPECTRAL_DIR)
+            output_dir = Path(TRANSFORMED_DIR)
             video_path = output_dir / "running_frog_rgb_comparison_lossless.mkv"
             mat_paths = sorted(sequence_dir.glob("*.mat"))
             if not mat_paths:
