@@ -11,7 +11,7 @@ __generated_with = "0.25.1"
 app = marimo.App(width="medium")
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     # Coded DOE: Inverse Design of a Diffractive Optical Element for Hyperspectral Localization
@@ -49,7 +49,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _():
     import os
 
@@ -57,7 +57,7 @@ def _():
     return (os,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ## Running modes: editor vs. headless batch (CHPC)
@@ -84,7 +84,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(os):
     import torch
     import torch.nn as nn
@@ -203,6 +203,9 @@ def _(os):
         print_every=100,
         monte_carlo_samples=2,
         optim_space=False,
+        # "poisson" (exact, Eq. (10) of Shah et al.) or "gaussian"
+        # (shot + read-noise variance). Overridable in the TOML [training].
+        noise_model="poisson",
     )
     TRAINING_CONFIG.update(CONFIG.get("training", {}))
     return (
@@ -240,7 +243,7 @@ def _(os):
     )
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ### What the design variables mean
@@ -252,12 +255,12 @@ def _(mo):
     | `DOE_MAX_THICKNESS` | the optimizer's height budget. The phase excursion is $2\pi\,[n(\lambda)-1]\,t/\lambda$, so 5 um at $n \approx 1.5$ gives about 6 waves at 400 nm. |
     | `DOE_GAP_RANGE`, `DOE_GAP` | the defocus $\delta$ that converts phase into intensity. $\delta$ is *learned* inside the range; `DOE_GAP` seeds the search and is the evaluation fallback. |
     | `WAVELENGTH_BAND_NM`, `WAVELENGTH_STEP_NM` | the spectral bins of the incoherent sum. |
-    | `APERTURE_TYPE`, `APERTURE_RADIUS_FRACTION` | the stop used by the (far-field) pupil model. |
+    | `APERTURE_TYPE`, `APERTURE_RADIUS_FRACTION` | the stop applied to the DOE relief by the near-field point-source PSF model (`rect` = open, transmission 1). |
     """)
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ## The optical model
@@ -296,6 +299,25 @@ def _(mo):
     sensor pitch: the conversion over $\delta$ needs the frequencies with
     $\pi \lambda \delta f^2 \sim 1$, which a pooled-down grid cannot represent.
 
+    ### We are in the near field -- and the model never assumes otherwise
+
+    No Fraunhofer (far-field) approximation is used anywhere in the image
+    formation. A quick Fresnel-number check shows why that matters: the DOE
+    half-width is $a \approx 2.2$ mm, so at $\lambda = 550$ nm and
+    $\delta = 100$ um the Fresnel number is
+
+    $$
+    N_F = \frac{a^2}{\lambda\,\delta} \approx \frac{(2.2\times 10^{-3})^2}
+    {5.5\times 10^{-7} \times 10^{-4}} \sim 10^{4} \gg 1,
+    $$
+
+    deep in the Fresnel region even at the smallest gap in `DOE_GAP_RANGE`.
+    The angular-spectrum transfer function is the exact plane-to-plane
+    propagator across that whole regime (the Fraunhofer limit is merely its
+    asymptotic tail), so the same `to_focal` operator is correct at every
+    gap the optimizer explores -- nothing is re-derived for far-field
+    convenience.
+
     ### Why Monte Carlo, and why the phase screens are fixed
 
     Incoherent superposition means intensities -- not fields -- add across
@@ -331,7 +353,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(torch):
     def angular_spectrum_propagate(field, wavelength, distance, pixel_pitch):
         """Propagate a complex field a signed ``distance`` (m) on a Cartesian grid.
@@ -356,7 +378,7 @@ def _(torch):
     return (angular_spectrum_propagate,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(angular_spectrum_propagate, torch):
     def to_focal(field, wavelength, doe_transmission, defocus, pixel_pitch):
         """Image a focal-plane field through the defocused DOE onto the sensor.
@@ -383,7 +405,7 @@ def _(angular_spectrum_propagate, torch):
     return (to_focal,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(nn, np, torch):
     class SineLayer(nn.Module):
         def __init__(self, in_features, out_features, bias=True, is_first=False, omega_0=30):
@@ -432,46 +454,50 @@ def _(nn, np, torch):
     return (MaskThicknessMLP,)
 
 
-@app.cell
-def _(torch):
-    def generate_psf_stack(thickness_map, wavelengths, n_lambda, aperture_mask, device):
-        """Far-field (pupil-plane) PSF stack -- the quick intuition model.
+@app.cell(hide_code=True)
+def _(DOE_GAP, SENSOR_PIXEL_PITCH, to_focal, torch):
+    def generate_psf_stack(thickness_map, wavelengths, n_lambda, aperture_mask,
+                           device, defocus=DOE_GAP, pixel_pitch=SENSOR_PIXEL_PITCH):
+        """Near-field point-source PSF stack -- the quick intuition model.
 
-        Forms the pupil ``P = aperture * exp(i 2pi/lambda (n-1) t)``, takes its
-        centered FFT, and normalizes each wavelength's intensity to unit flux.
-        This is the *pupil-plane* alternative to the near-focus Monte Carlo
-        model below; it is kept for exploring designs before committing to
-        the expensive image-plane simulation.
+        No Fraunhofer shortcut: the bench is deep in the Fresnel region (see
+        the Fresnel-number estimate above), so the PSF is built from the same
+        exact propagator as the Monte Carlo model. For a point source the
+        lens's own Airy spot (~lambda * F-number, sub-pixel here) is a unit
+        delta on the sensor-pitch grid; feeding that delta through ``to_focal``
+        back-propagates a flat angular spectrum to the DOE plane, applies the
+        chromatic mask ``aperture * exp(i 2pi/lambda (n-1) t)``, propagates
+        back, and relays -- the near-field PSF per wavelength, normalized to
+        unit flux.
+
+        ``pixel_pitch`` must match the grid ``thickness_map`` lives on (pass
+        DOE_PIXEL_PITCH for the MLP cell's map); ``defocus`` is the
+        DOE-to-focal-plane offset delta (m).
 
         thickness_map: Tensor of shape (H, W) in meters
         wavelengths: Tensor of shape (K,) in meters
-        n_lambda: Tensor of shape (K,) representing refractive index per wavelength
-        aperture_mask: Binary tensor of shape (H, W)
+        n_lambda: Tensor of shape (K,) refractive index per wavelength
+        aperture_mask: Binary transmission on the same grid
         """
         H, W = thickness_map.shape
         K = wavelengths.shape[0]
+        wl = wavelengths.view(K, 1, 1).to(device=device, dtype=torch.float32)
+        n_l = n_lambda.view(K, 1, 1).to(device=device, dtype=torch.float32)
+        thickness = thickness_map.to(device=device, dtype=torch.float32)
 
-        # Reshape for broadcasting: (K, 1, 1)
-        wl = wavelengths.view(K, 1, 1)
-        n_l = n_lambda.view(K, 1, 1)
+        # Chromatic DOE transmission on the cell grid, stopped by the aperture.
+        phase = (2 * torch.pi / wl) * (n_l - 1.0) * thickness
+        doe = aperture_mask.to(device=device, dtype=torch.float32) * torch.exp(1j * phase)
 
-        # 1. Calculate phase delay for all wavelengths
-        # phi shape: (K, H, W)
-        phi = (2 * torch.pi / wl) * (n_l - 1.0) * thickness_map
+        # Point source at the focal plane: unit delta at the array center.
+        field = torch.zeros((K, H, W), device=device, dtype=torch.cfloat)
+        field[:, H // 2, W // 2] = 1.0
 
-        # 2. Construct complex pupil function
-        # P shape: (K, H, W)
-        P = aperture_mask.unsqueeze(0) * torch.exp(1j * phi)
+        # Same -delta / DOE / +delta / relay chain the Monte Carlo model uses.
+        relayed = to_focal(field, wl, doe, defocus, pixel_pitch)
+        psf_stack = relayed.abs().square()
 
-        # 3. Fourier transform to get the PSF
-        # Use 2D FFT, shifting the zero-frequency component to the center
-        fft_field = torch.fft.fft2(P, norm="ortho").to(device)
-        fft_field_shifted = torch.fft.fftshift(fft_field, dim=(-2, -1))
-
-        # 4. Calculate intensity (squared magnitude)
-        psf_stack = torch.abs(fft_field_shifted)**2
-
-        # Normalize each PSF to sum to 1 (energy conservation)
+        # Normalize each PSF to sum to 1 (energy conservation).
         psf_stack = psf_stack / psf_stack.sum(dim=(-2, -1), keepdim=True)
 
         return psf_stack
@@ -479,7 +505,7 @@ def _(torch):
     return (generate_psf_stack,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(DOE_GAP_RANGE, SENSOR_PIXEL_PITCH, to_focal, torch):
     from torch.utils.checkpoint import checkpoint
 
@@ -635,7 +661,7 @@ def _(DOE_GAP_RANGE, SENSOR_PIXEL_PITCH, to_focal, torch):
     return (generate_incoherent_relay_stack,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ## The simulated object
@@ -660,7 +686,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(SENSOR_RASTER, WAVELENGTH_BAND_NM, WAVELENGTH_STEP_NM, np):
     wavelengths = np.arange(
         WAVELENGTH_BAND_NM[0], WAVELENGTH_BAND_NM[1], WAVELENGTH_STEP_NM
@@ -675,7 +701,7 @@ def _(SENSOR_RASTER, WAVELENGTH_BAND_NM, WAVELENGTH_STEP_NM, np):
     return shape, sigma_x, sigma_y, wavelengths, x, y
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(np, shape, sigma_x, sigma_y, x, y):
     # Simulation parameters
     v_x = 500.0  # Velocity in x (px/s)
@@ -711,7 +737,7 @@ def _(np, shape, sigma_x, sigma_y, x, y):
     return M_stack, dM_dsigma_x_stack, dM_dsigma_y_stack
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ## Material dispersion: where the color sensitivity comes from
@@ -730,7 +756,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(MATERIAL_XLSX, Path, mo):
     # Browse for an alternative Cauchy table; the browser starts in the
     # configured material directory so it also works headless, where no
@@ -744,7 +770,7 @@ def _(MATERIAL_XLSX, Path, mo):
     return (cauchy,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(CubicSpline, MATERIAL_XLSX, cauchy, pd, torch, wavelengths):
     # 1. Load the target material data: the file-browser selection overrides
     # the configured MATERIAL_XLSX default when a file is picked.
@@ -768,7 +794,7 @@ def _(CubicSpline, MATERIAL_XLSX, cauchy, pd, torch, wavelengths):
     return n_lambda, wavelengths_tensor
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ## Parameterizing the design: a neural thickness map
@@ -794,13 +820,14 @@ def _(mo):
       space is the network's weights, and the loss is a physics simulation.
 
     The cell below also builds the entrance `aperture_mask` from
-    `APERTURE_TYPE`/`APERTURE_RADIUS_FRACTION` -- the stop used by the
-    far-field `generate_psf_stack` intuition model.
+    `APERTURE_TYPE`/`APERTURE_RADIUS_FRACTION` -- the stop applied to the DOE
+    relief by the near-field point-source PSF model
+    (`APERTURE_TYPE = "rect"` is simply always-open transmission 1).
     """)
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(
     APERTURE_RADIUS_FRACTION,
     APERTURE_TYPE,
@@ -836,13 +863,15 @@ def _(
             f"unknown APERTURE_TYPE {APERTURE_TYPE!r}; use 'rect' or 'circular'"
         )
 
-    # Compute the multi-wavelength PSF stack
-    #psf_stack = generate_psf_stack(thickness_map, wavelengths_tensor, n_lambda, aperture_mask, device)
-    #print("Generated PSF Stack Shape:", psf_stack.shape) # Expected: (74, 720, 1280)
+    # Near-field point-source PSF stack for quick intuition (no Monte Carlo).
+    # The map lives on the DOE grid, so pass DOE_PIXEL_PITCH as the pitch:
+    #psf_stack = generate_psf_stack(thickness_map, wavelengths_tensor, n_lambda,
+    #                               aperture_mask, device, pixel_pitch=DOE_PIXEL_PITCH)
+    #print("Generated PSF Stack Shape:", psf_stack.shape) # Expected: (K, H_doe, W_doe)
     return aperture_mask, coords, mlp
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ## The objective: Fisher information and the Cramer-Rao lower bound
@@ -877,19 +906,87 @@ def _(mo):
     variance lower bounds. A tiny ridge keeps $F^{-1}$ finite in the first
     epochs, when the random-init DOE is nearly informationless and $F$ is
     singular.
+
+    ### Cross-check against Shah et al. (CodedEvents)
+
+    The paper derives the FI from the score variance (their Eq. (8)),
+    $I(\theta)_{ij} = E[(\partial_i \log f)(\partial_j \log f)]$, for the
+    *event-camera* measurement $O_t = \log\!\big(I_{t,b}/I_{t-\tau,b}\big)$
+    -- a ratio of two Poisson frame sums. Two results matter here:
+
+    - **Flashing source, their Eq. (10):** when the pre-interval frame is
+      blank, the measurement reduces to $O_t = \log I_{t,b}$ and the FI is
+      $$
+      I_{ij} = \sum_n \frac{1}{h(n) + b}\,
+      \frac{\partial h(n)}{\partial \theta_i}\,
+      \frac{\partial h(n)}{\partial \theta_j},
+      $$
+      the standard Poisson FI, which the paper explicitly notes is "the same
+      result" as the classical CMOS Fisher-mask formulation. This is exactly
+      what `crlb_from_images` assembles: $h$ is the unit-flux PSF,
+      $\mu_n = N_{\mathrm{ph}}\,h(n) + b$, and the Jacobian columns carry the
+      $N_{\mathrm{ph}}$ factor.
+    - **General case, their Eq. (12)-(13):** for non-blank intervals the
+      Poisson *ratio* is approximated by a single Normal (Griffin's result),
+      and evaluating the score variance under that Gaussian PDF yields the
+      $a, b, c$ polynomial entries and the $1/[2(\mu\nu + \cdots)]$
+      prefactor of Eq. (13).
+
+    The Gaussian-PDF approximation exists **only because event cameras
+    measure the log-ratio**. Our sensor integrates intensity directly per
+    frame, so no ratio appears: the Poisson FI is exact for this model, and
+    Eq. (13) would be the wrong objective. For comparison against the paper's
+    Gaussian-style treatment -- and to fold in read/thermal noise --
+    `crlb_from_images` also offers `noise_model="gaussian"`, which weights by
+    $1/(\mu_n + \sigma_{\mathrm{read}}^2)$ with $\sigma_{\mathrm{read}}^2$
+    taken equal to `background_photons` (the paper likewise "adds Gaussian
+    noise to simulate other noise sources" in its simulations). The two
+    coincide as the background term vanishes.
     """)
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(torch):
     def crlb_from_images(
         mean_image, dx_image, dy_image, wavelengths_nm,
         photons_per_bin=1e5, background_photons=1.0, frame_stride=10,
         parameter_scales=(50.0, 50.0, 100.0), ridge=1e-8, eps=1e-12,
-        spatial=True, spectral=True
+        spatial=True, spectral=True, noise_model="poisson"
     ):
-        """Joint CRLB for images already generated by the optical model."""
+        """Joint CRLB for images already generated by the optical model.
+
+        Matches Eq. (10) of Shah et al. (CodedEvents, CVPR 2024) for its
+        flashing-particle case -- which is this camera's regime. The photon
+        count at pixel n is Poisson with mean
+
+            mu_n = photons_per_bin * h(n) + background_photons,
+
+        where h(n) is the unit-flux PSF intensity, so the exact Poisson
+        Fisher information (score variance, their Eq. (8)-(10)) is
+
+            I_ij = sum_n (1 / mu_n) * dmu_n/dtheta_i * dmu_n/dtheta_j,
+
+        with columns dmu/dtheta = photons_per_bin * dh/dtheta: the dx/dy
+        channels from the Monte Carlo derivative fields and dh/dlambda from
+        central differences across bins. The paper notes this reduces to the
+        classical CMOS Fisher-mask result -- the Gaussian-PDF machinery of
+        its Eq. (12)-(13) (a Normal approximation to the *ratio* of two
+        Poisson frame sums, giving the a/b/c polynomial entries of Eq. (13))
+        is specific to event cameras, whose measurement is
+        O_t = log(I_{t,b} / I_{t-tau,b}). A frame-based sensor measuring
+        mu_n directly has no ratio, so the Poisson FI here is exact, not an
+        approximation.
+
+        ``noise_model`` selects the weighting inside the sum:
+          "poisson"  -- 1/mu_n (default; exact for photon counting).
+          "gaussian" -- Gaussian approximation with variance
+                        sigma_n^2 = mu_n + background_photons, i.e. shot
+                        noise plus a read/thermal floor (the paper adds
+                        Gaussian noise in the same spirit for non-shot
+                        sources). Identical to "poisson" when
+                        background_photons -> 0.
+        """
         mean_image = mean_image[::frame_stride]
         dx_image = dx_image[::frame_stride]
         dy_image = dy_image[::frame_stride]
@@ -919,7 +1016,15 @@ def _(torch):
         jacobian = torch.cat(jacobian_parts, dim=-1)
         selected_scales = torch.cat(selected_scales)
         jacobian = jacobian * selected_scales
-        weights = 1.0 / expected.clamp_min(eps)
+        if noise_model == "poisson":
+            # Exact Poisson score variance, Eq. (10) of Shah et al.
+            weights = 1.0 / expected.clamp_min(eps)
+        elif noise_model == "gaussian":
+            # Gaussian approximation: shot noise plus a read/thermal floor.
+            variance = expected + background_photons
+            weights = 1.0 / variance.clamp_min(eps)
+        else:
+            raise ValueError(f"unknown noise_model {noise_model!r}; use 'poisson' or 'gaussian'")
         jacobian = jacobian.reshape(-1, jacobian.shape[-1])
         weights = weights.reshape(-1)
         fisher = torch.einsum("ni,nj,n->ij", jacobian, jacobian, weights)
@@ -935,7 +1040,7 @@ def _(torch):
     return (crlb_from_images,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ## Training loop: back-propagating through wave optics
@@ -968,7 +1073,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(
     DOE_GAP,
     DOE_GAP_RANGE,
@@ -1004,6 +1109,7 @@ def _(
         doe_offset=DOE_GAP_RANGE,
         optim_space=True,
         optim_spectral=True,
+        noise_model="poisson",
     ):
         """Optimize a near-focus image-plane DOE with fixed-phase incoherent MC.
 
@@ -1102,7 +1208,8 @@ def _(
                 mean_image, dx_image, dy_image, wavelengths * 1e9,
                 photons_per_bin=photons_per_bin,
                 background_photons=background_photons,
-                frame_stride=1, spatial=optim_space, spectral=optim_spectral
+                frame_stride=1, spatial=optim_space, spectral=optim_spectral,
+                noise_model=noise_model
             )
             # Joint A-optimal design: minimize the sum of diagonal CRLBs.
             loss = crlb.sum()
@@ -1136,7 +1243,7 @@ def _(
     return (train_mask,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ## Run the inverse design
@@ -1150,7 +1257,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(
     DOE_MAX_THICKNESS,
     M_stack,
@@ -1199,7 +1306,7 @@ def _(
     return gap, psf, thickness, thickness_full
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ## Reading the diagnostics
@@ -1223,7 +1330,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(
     DOE_GAP_RANGE,
     DOE_PIXEL_PITCH,
@@ -1303,7 +1410,7 @@ def _(
     return (plt,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(n_lambda, plt, psf, thickness, torch, wavelengths_tensor):
     def _():
         """Multi-wavelength phase and per-wavelength output diagnostics."""
@@ -1349,7 +1456,7 @@ def _(n_lambda, plt, psf, thickness, torch, wavelengths_tensor):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(
     M_stack,
     MaskThicknessMLP,
@@ -1397,7 +1504,7 @@ def _(
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ## Exporting the mask for fabrication and evaluation
@@ -1416,7 +1523,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(DOE_GAP_RANGE, SAVE, gap, np, psf, thickness_full, torch):
     if SAVE and thickness_full is not None:
         # Full DOE thickness map (DOE_RASTER at DOE_PIXEL_PITCH, meters) for the
@@ -1429,7 +1536,7 @@ def _(DOE_GAP_RANGE, SAVE, gap, np, psf, thickness_full, torch):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ## Evaluation on real hyperspectral video
@@ -1458,7 +1565,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(DOE_GAP, SENSOR_PIXEL_PITCH, to_focal, torch):
     def transform_hyperspectral_slice(
         intensity_slice,
@@ -1523,7 +1630,7 @@ def _(DOE_GAP, SENSOR_PIXEL_PITCH, to_focal, torch):
     return (transform_hyperspectral_slice,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(DOE_GAP, SENSOR_PIXEL_PITCH, torch, transform_hyperspectral_slice):
     def iter_hyperspectral_mat(
         mat_path,
@@ -1587,7 +1694,7 @@ def _(DOE_GAP, SENSOR_PIXEL_PITCH, torch, transform_hyperspectral_slice):
     return (iter_hyperspectral_mat,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(DOE_GAP, SENSOR_PIXEL_PITCH, iter_hyperspectral_mat):
     def iter_hyperspectral_sequence(
         sequence_dir,
@@ -1623,7 +1730,7 @@ def _(DOE_GAP, SENSOR_PIXEL_PITCH, iter_hyperspectral_mat):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(DOE_GAP, SENSOR_PIXEL_PITCH, iter_hyperspectral_mat, torch):
     def transform_hyperspectral_sequence(
         sequence_dir,
@@ -1686,7 +1793,7 @@ def _(DOE_GAP, SENSOR_PIXEL_PITCH, iter_hyperspectral_mat, torch):
     return (transform_hyperspectral_sequence,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ## Run the evaluation and render the video
@@ -1721,7 +1828,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(
     CubicSpline,
     DOE_GAP,
@@ -1781,7 +1888,7 @@ def _(
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(CREATE_VIDEO, Path, TRANSFORMED_DIR, VIDEO_CODEC, np):
     def _():
         """Write the transformed running-frog frames as a 1/40 FPS video."""
@@ -1837,7 +1944,7 @@ def _(CREATE_VIDEO, Path, TRANSFORMED_DIR, VIDEO_CODEC, np):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(
     CREATE_RGB_VIDEO,
     HYPERSPECTRAL_DIR,
