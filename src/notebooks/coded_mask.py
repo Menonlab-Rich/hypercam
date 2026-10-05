@@ -203,7 +203,11 @@ def _(os):
         print_every=100,
         monte_carlo_samples=2,
         optim_space=False,
-        # "poisson" (exact, Eq. (10) of Shah et al.) or "gaussian"
+        # "event" (default: the hypercam is an event sensor; Fisher blocks
+        # from consecutive-frame log-ratio pairs, Shah et al. Eq. (13)) or
+        # "frame" (blinking-particle Poisson baseline, their Eq. (10)).
+        sensor="event",
+        # Frame-mode weighting only: "poisson" (exact) or "gaussian"
         # (shot + read-noise variance). Overridable in the TOML [training].
         noise_model="poisson",
     )
@@ -933,15 +937,62 @@ def _(mo):
       prefactor of Eq. (13).
 
     The Gaussian-PDF approximation exists **only because event cameras
-    measure the log-ratio**. Our sensor integrates intensity directly per
-    frame, so no ratio appears: the Poisson FI is exact for this model, and
-    Eq. (13) would be the wrong objective. For comparison against the paper's
-    Gaussian-style treatment -- and to fold in read/thermal noise --
+    measure the log-ratio** -- and the hypercam *is* an event sensor, so the
+    paper's generalization below, not just Eq. (10), is the design-relevant
+    object. For comparison against the paper's Gaussian-style treatment of a
+    frame-like readout -- and to fold in read/thermal noise --
     `crlb_from_images` also offers `noise_model="gaussian"`, which weights by
     $1/(\mu_n + \sigma_{\mathrm{read}}^2)$ with $\sigma_{\mathrm{read}}^2$
     taken equal to `background_photons` (the paper likewise "adds Gaussian
     noise to simulate other noise sources" in its simulations). The two
     coincide as the background term vanishes.
+
+    ### Event-camera objective: Eq. (11)-(21), `sensor="event"` (default)
+
+    The event measurement over one frame interval $\tau$ is
+    $O_t = \log\!\big(I^b_t / I^b_{t-\tau}\big)$. The paper approximates the
+    Poisson ratio (their Eq. (12)) by a single Normal,
+
+    $$
+    \frac{I^b_t}{I^b_{t-\tau}} \;\sim\;
+    \mathcal{N}\!\left(\frac{\nu}{\mu},\; \frac{\nu}{\mu^2} + \frac{\nu^2}{\mu^3}\right),
+    \qquad \mu = \lambda_{t-\tau},\;\; \nu = \lambda_t,
+    $$
+
+    and evaluates the score variance (Eq. (8)) under that PDF to get the
+    per-pixel Fisher block of Eq. (13):
+    $\mathcal{I}(\theta) = \sum_n \frac{\mathcal{D}\mathcal{D}^{\mathsf T}}{2(\mu+\nu)^2} \odot M$,
+    where $M$ is the $6\times 6$ block matrix carrying $a$ over the
+    previous-frame parameters, $c$ over the current-frame parameters, and $b$
+    across, with (Eqs. (19)-(21))
+
+    $$
+    a = 2\mu^2\nu + 4\mu^2 + 2\mu\nu^2 + 12\mu\nu + 9\nu^2,\quad
+    b = -(2\mu^2\nu + 2\mu^2 + 2\mu\nu^2 + 7\mu\nu + 6\nu^2),\quad
+    c = 2\mu^2\nu + \mu^2 + 2\mu\nu^2 + 4\mu\nu + 4\nu^2,
+    $$
+
+    and the score vector (Eq. (18))
+
+    $$
+    \mathcal{D} = \big[\; \mu_x/\mu,\; \mu_y/\mu,\; \mu_\lambda/\mu,\;
+    \nu_x/\nu,\; \nu_y/\nu,\; \nu_\lambda/\nu \;\big].
+    $$
+
+    The parameter set is six-dimensional -- position and wavelength at the
+    *current and the previous frame*, $(x_t, y_t, \lambda_t, x_{t-\tau},
+    y_{t-\tau}, \lambda_{t-\tau})$; we substitute the spectral parameter for
+    the paper's depth $z$. `crlb_event_from_pairs` implements exactly this
+    (the $a,b,c$ polynomials verified symbolically against the score variance
+    of the Eq. (12) Normal), and `train_mask` with `sensor="event"` pairs
+    consecutive strided frames automatically: the MC model already renders
+    every frame, so each pair member gets its own mean image and $dx/dy$
+    channels, and the loss is again an A-optimal trace, now over the six
+    tracking parameters.
+
+    The frame-integrating Poisson objective remains selectable with
+    `sensor="frame"` -- the blinking-particle baseline of Eq. (10), useful
+    for comparing what the event temporal structure adds.
     """)
     return
 
@@ -974,9 +1025,10 @@ def _(torch):
         its Eq. (12)-(13) (a Normal approximation to the *ratio* of two
         Poisson frame sums, giving the a/b/c polynomial entries of Eq. (13))
         is specific to event cameras, whose measurement is
-        O_t = log(I_{t,b} / I_{t-tau,b}). A frame-based sensor measuring
-        mu_n directly has no ratio, so the Poisson FI here is exact, not an
-        approximation.
+        O_t = log(I_{t,b} / I_{t-tau,b}). For a frame-integrating readout no
+        ratio appears, so the Poisson FI here is exact, not an approximation;
+        the event-sensor version of this objective is
+        ``crlb_event_from_pairs`` (selected via train_mask's sensor="event").
 
         ``noise_model`` selects the weighting inside the sum:
           "poisson"  -- 1/mu_n (default; exact for photon counting).
@@ -1040,6 +1092,108 @@ def _(torch):
     return (crlb_from_images,)
 
 
+@app.cell
+def _(torch):
+    def crlb_event_from_pairs(
+        mean_prev, mean_cur, dx_prev, dy_prev, dx_cur, dy_cur, wavelengths_nm,
+        photons_per_bin=1e5, background_photons=1.0,
+        parameter_scales=(50.0, 50.0, 100.0, 50.0, 50.0, 100.0),
+        ridge=1e-8, eps=1e-12, spatial=True, spectral=True,
+    ):
+        """Event-camera CRLB: Eq. (13)-(21) of Shah et al. (CodedEvents).
+
+        The sensor reports O_t = log(I^b_t / I^b_{t-tau}), a per-pixel ratio
+        of two Poisson frame sums. Following the paper, the ratio is
+        approximated by a single Normal (their Eq. (12))
+
+            ratio ~ N(nu/mu, nu/mu^2 + nu^2/mu^3),
+
+        with mu = photons_per_bin*h_prev + b (previous frame, their
+        lambda_{t-tau}, Eq. (14)) and nu = photons_per_bin*h_cur + b (current
+        frame, their lambda_t, Eq. (15)). Evaluating the score variance
+        (their Eq. (8)) under that PDF gives the per-pixel Fisher block
+
+            I_ij = sum_n [1 / (2 (mu_n + nu_n)^2)] D_ni D_nj M_ij(n),
+
+        where M carries a = 2mu^2 nu + 4mu^2 + 2mu nu^2 + 12mu nu + 9nu^2
+        (their Eq. 19) over the previous-frame parameter block,
+        b = -(2mu^2 nu + 2mu^2 + 2mu nu^2 + 7mu nu + 6nu^2) (Eq. 20) across
+        blocks, and c = 2mu^2 nu + mu^2 + 2mu nu^2 + 4mu nu + 4nu^2 (Eq. 21)
+        over the current-frame block, with the score vector
+
+            D = [mu_x/mu, mu_y/mu, mu_lam/mu, nu_x/nu, nu_y/nu, nu_lam/nu]
+
+        (Eq. 18, depth z replaced by wavelength for this hyperspectral
+        bench). Parameters: (x_t, y_t, lam_t, x_{t-tau}, y_{t-tau},
+        lam_{t-tau}); the diagonal CRLB follows in the same order after
+        applying ``parameter_scales``.
+
+        Inputs are matched pairs of MC-model stacks: ``*_prev`` frames
+        (P, K, H, W) and ``*_cur`` frames (P, K, H, W) with P = number of
+        consecutive-frame pairs; dx/dy are the model's derivative channels
+        (dM/dsigma fields) and the wavelength column is a central difference
+        across bins.
+        """
+        dlambda = wavelengths_nm[2:] - wavelengths_nm[:-2]
+        mu = (photons_per_bin * mean_prev[:, 1:-1] + background_photons).clamp_min(eps)
+        nu = (photons_per_bin * mean_cur[:, 1:-1] + background_photons).clamp_min(eps)
+        wavelength_prev = (mean_prev[:, 2:] - mean_prev[:, :-2]) / dlambda[None, :, None, None]
+        wavelength_cur = (mean_cur[:, 2:] - mean_cur[:, :-2]) / dlambda[None, :, None, None]
+
+        scales = torch.as_tensor(parameter_scales, device=mean_prev.device, dtype=mean_prev.dtype)
+        # Score components D_i = (1/mu) dmu/dtheta_i for the previous-frame
+        # parameters and (1/nu) dnu/dtheta_i for the current-frame ones.
+        u_parts, v_parts, s_u, s_v = [], [], [], []
+        if spatial:
+            u_parts.append(photons_per_bin * dx_prev[:, 1:-1])
+            v_parts.append(photons_per_bin * dx_cur[:, 1:-1])
+            s_u.append(scales[0]); s_v.append(scales[3])
+            u_parts.append(photons_per_bin * dy_prev[:, 1:-1])
+            v_parts.append(photons_per_bin * dy_cur[:, 1:-1])
+            s_u.append(scales[1]); s_v.append(scales[4])
+        if spectral:
+            u_parts.append(photons_per_bin * wavelength_prev)
+            v_parts.append(photons_per_bin * wavelength_cur)
+            s_u.append(scales[2]); s_v.append(scales[5])
+        if not u_parts:
+            raise ValueError("at least one of spatial or spectral must be enabled")
+        s_u = torch.stack(s_u)
+        s_v = torch.stack(s_v)
+
+        U = (torch.stack(u_parts, dim=-1) / mu[..., None] * s_u).reshape(-1, len(u_parts))
+        V = (torch.stack(v_parts, dim=-1) / nu[..., None] * s_v).reshape(-1, len(v_parts))
+        mu_flat = mu.reshape(-1)
+        nu_flat = nu.reshape(-1)
+        weight = 0.5 / (mu_flat + nu_flat).square()
+        a = (2 * mu_flat.square() * nu_flat + 4 * mu_flat.square()
+             + 2 * mu_flat * nu_flat.square() + 12 * mu_flat * nu_flat + 9 * nu_flat.square())
+        b = -(2 * mu_flat.square() * nu_flat + 2 * mu_flat.square()
+              + 2 * mu_flat * nu_flat.square() + 7 * mu_flat * nu_flat + 6 * nu_flat.square())
+        c = (2 * mu_flat.square() * nu_flat + mu_flat.square()
+             + 2 * mu_flat * nu_flat.square() + 4 * mu_flat * nu_flat + 4 * nu_flat.square())
+        wa, wb, wc = weight * a, weight * b, weight * c
+
+        # Assemble the 6x6 Eq. (13) block matrix: a over the previous-frame
+        # score block, c over the current-frame block, b across.
+        n_u, n_v = U.shape[-1], V.shape[-1]
+        fisher = torch.zeros(n_u + n_v, n_u + n_v, device=U.device, dtype=U.dtype)
+        fisher[:n_u, :n_u] = torch.einsum("ni,n,nj->ij", U, wa, U)
+        fisher[:n_u, n_u:] = torch.einsum("ni,n,nj->ij", U, wb, V)
+        fisher[n_u:, :n_u] = torch.einsum("ni,n,nj->ij", V, wb, U)
+        fisher[n_u:, n_u:] = torch.einsum("ni,n,nj->ij", V, wc, V)
+        identity = torch.eye(fisher.shape[-1], device=fisher.device, dtype=fisher.dtype)
+        scaled_covariance = torch.linalg.solve(fisher + ridge * identity, identity)
+        selected_scales = torch.cat((s_u, s_v))
+        covariance = (
+            scaled_covariance
+            * selected_scales[:, None]
+            * selected_scales[None, :]
+        )
+        return torch.diagonal(covariance), fisher
+
+    return (crlb_event_from_pairs,)
+
+
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
@@ -1056,8 +1210,11 @@ def _(mo):
        and the $dx$/$dy$ derivative channels; each wavelength bin runs under
        activation checkpointing (memory), recomputing its FFT graph in
        backward.
-    4. **Score** -- `crlb_from_images` assembles the Fisher matrix over all
-       pixels and bins; the loss is its trace (A-optimal design).
+    4. **Score** -- the objective is chosen by ``sensor``: ``"event"`` pairs
+       consecutive frames and assembles the six-parameter log-ratio Fisher
+       matrix of Eq. (13) (`crlb_event_from_pairs`); ``"frame"`` uses the
+       blinking-particle Poisson CRLB of Eq. (10) (`crlb_from_images`).
+       Either way the loss is the trace of the CRLB (A-optimal design).
     5. **Descend** -- Adam updates the MLP weights *and* the defocus gap. The
        gap is stored as a logit and squashed into `DOE_GAP_RANGE` by a
        sigmoid, so no update can leave the physical interval; gradients are
@@ -1080,6 +1237,7 @@ def _(
     DOE_MAX_THICKNESS,
     DOE_PIXEL_PITCH,
     SENSOR_PIXEL_PITCH,
+    crlb_event_from_pairs,
     crlb_from_images,
     nn,
     torch,
@@ -1110,8 +1268,16 @@ def _(
         optim_space=True,
         optim_spectral=True,
         noise_model="poisson",
+        sensor="event",
     ):
         """Optimize a near-focus image-plane DOE with fixed-phase incoherent MC.
+
+        ``sensor`` selects the estimation objective: "event" scores
+        consecutive frame pairs with the event-camera log-ratio Fisher
+        information of Shah et al. Eq. (13) (six parameters: x, y, wavelength
+        at the current and previous frame); "frame" uses the frame-based
+        Poisson CRLB (their blinking-particle Eq. (10)), weighted per
+        ``noise_model``.
 
         The simulation runs at the physical sensor pitch on a ``patch_size``
         window cropped around each frame's blob centroid: near-focus
@@ -1204,13 +1370,30 @@ def _(
                 random_phases=random_phases,
                 raw_gap=raw_gap
             )
-            crlb, fisher = crlb_from_images(
-                mean_image, dx_image, dy_image, wavelengths * 1e9,
-                photons_per_bin=photons_per_bin,
-                background_photons=background_photons,
-                frame_stride=1, spatial=optim_space, spectral=optim_spectral,
-                noise_model=noise_model
-            )
+            if sensor == "event":
+                # Consecutive (strided) frames form the log-ratio pairs the
+                # event measurement compares.
+                if mean_image.shape[0] < 2:
+                    raise ValueError(
+                        "event FI needs at least two frames to form a pair; "
+                        "reduce frame_stride or add frames"
+                    )
+                crlb, fisher = crlb_event_from_pairs(
+                    mean_image[:-1], mean_image[1:],
+                    dx_image[:-1], dx_image[1:],
+                    dy_image[:-1], dy_image[1:], wavelengths * 1e9,
+                    photons_per_bin=photons_per_bin,
+                    background_photons=background_photons,
+                    spatial=optim_space, spectral=optim_spectral,
+                )
+            else:
+                crlb, fisher = crlb_from_images(
+                    mean_image, dx_image, dy_image, wavelengths * 1e9,
+                    photons_per_bin=photons_per_bin,
+                    background_photons=background_photons,
+                    frame_stride=1, spatial=optim_space, spectral=optim_spectral,
+                    noise_model=noise_model
+                )
             # Joint A-optimal design: minimize the sum of diagonal CRLBs.
             loss = crlb.sum()
             if not torch.isfinite(loss):

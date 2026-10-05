@@ -69,3 +69,10 @@ print_every = 100
 monte_carlo_samples = 2
 optim_space = false
 optim_spectral = true
+# Estimation objective: "event" (default; hypercam is an event sensor --
+# log-ratio Fisher blocks over consecutive frame pairs, Shah et al.
+# Eq. (13), six parameters (x, y, lambda) at t and t-tau) or "frame"
+# (blinking-particle Poisson baseline, Eq. (10)).
+sensor = "event"
+# Frame-mode weighting only: "poisson" (exact) or "gaussian" (shot + read).
+noise_model = "poisson"
