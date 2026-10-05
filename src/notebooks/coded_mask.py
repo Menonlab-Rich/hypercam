@@ -12,11 +12,76 @@ app = marimo.App(width="medium")
 
 
 @app.cell
+def _(mo):
+    mo.md(r"""
+    # Coded DOE: Inverse Design of a Diffractive Optical Element for Hyperspectral Localization
+
+    A **coded-aperture** camera places a thin diffractive optical element (DOE) --
+    a micron-scale relief thickness map $t(x, y)$ in a polymer of index
+    $n(\lambda)$ -- just in front of the intermediate image plane of a 35 mm lens.
+    Defocus between the DOE and that plane converts the DOE's *chromatic phase*
+    into *wavelength-dependent point-spread functions* (PSFs), so a single sensor
+    exposure encodes both where a point source is and what color it is.
+
+    This notebook **inversely designs** that relief. In forward design you pick a
+    surface and simulate the image it makes; here the order is flipped:
+
+    1. the surface is **parameterized** (a small neural network maps DOE
+       coordinates to thickness),
+    2. a differentiable **physics model** renders the images it would produce,
+    3. an estimation-theoretic **objective** -- the Cramer-Rao lower bound (CRLB)
+       on localizing $(x, y, \lambda)$ -- scores those images,
+    4. **gradient descent** back-propagates through the wave optics into the
+       geometry.
+
+    The pipeline, cell by cell: configuration and headless (CHPC) TOML overrides;
+    the optical model (angular-spectrum propagation, the DOE + relay operator,
+    the incoherent Monte Carlo stack); the simulated object and material
+    dispersion; the neural thickness parameterization; the Fisher/CRLB objective;
+    training; diagnostics and fabrication export; and finally evaluation of the
+    trained DOE on a real hyperspectral video.
+
+    *Assumed background: Fourier optics (PSFs, NA, coherent cutoff) and Poisson
+    photon counting. No experience with neural networks or marimo is assumed --
+    marimo is a reactive notebook: editing any cell re-runs everything that
+    depends on it, and the cell graph below is the program.*
+    """)
+    return
+
+
+@app.cell
 def _():
     import os
 
     os.putenv('PYTORCH_CUDA_ALLOC_CONF', 'expandable_segments:True')
     return (os,)
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""
+    ## Running modes: editor vs. headless batch (CHPC)
+
+    **In the marimo editor** (`marimo edit coded_mask.py`): toggle the `RUN_*`
+    switches in the config cell, browse for a Cauchy material table, and step
+    through the cells.
+
+    **On the CHPC** the same file runs as a plain script. Point
+    `CODED_MASK_CONFIG` at a TOML file and every default below can be overridden
+    without touching the code:
+
+    ```bash
+    CODED_MASK_CONFIG=/scratch/baird/hypercam/run.toml python coded_mask.py
+    ```
+
+    TOML sections mirror the config cell: `[design]` physical variables,
+    `[run]` execution switches and `seed`, `[paths]` the Cauchy material table
+    and data/output locations, `[training]` keyword overrides forwarded to
+    `train_mask`. See `coded_mask.example.toml` for the annotated schema; a
+    complete SLURM sketch appears at the end of this notebook. When the variable
+    is unset (the editor), every default applies unchanged.
+    """)
+    return
 
 
 @app.cell
@@ -176,9 +241,150 @@ def _(os):
 
 
 @app.cell
-def _(DOE_GAP_RANGE, SENSOR_PIXEL_PITCH, nn, np, torch):
-    from torch.utils.checkpoint import checkpoint
+def _(mo):
+    mo.md(r"""
+    ### What the design variables mean
 
+    | Variable | Physical meaning |
+    | --- | --- |
+    | `SENSOR_RASTER`, `SENSOR_PIXEL_PITCH` | the detector: where the wave optics is sampled. All propagation runs on this grid. |
+    | `DOE_PIXEL_PITCH`, `DOE_RASTER` | the DOE's own lithographic cell grid. A coarser `DOE_PIXEL_PITCH` makes one mask structure cover a block of detector pixels; `DOE_RASTER` is derived so the DOE's physical extent matches the sensor field of view. |
+    | `DOE_MAX_THICKNESS` | the optimizer's height budget. The phase excursion is $2\pi\,[n(\lambda)-1]\,t/\lambda$, so 5 um at $n \approx 1.5$ gives about 6 waves at 400 nm. |
+    | `DOE_GAP_RANGE`, `DOE_GAP` | the defocus $\delta$ that converts phase into intensity. $\delta$ is *learned* inside the range; `DOE_GAP` seeds the search and is the evaluation fallback. |
+    | `WAVELENGTH_BAND_NM`, `WAVELENGTH_STEP_NM` | the spectral bins of the incoherent sum. |
+    | `APERTURE_TYPE`, `APERTURE_RADIUS_FRACTION` | the stop used by the (far-field) pupil model. |
+    """)
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""
+    ## The optical model
+
+    ### Incoherent image formation through a defocused phase mask
+
+    The lens forms an intermediate image of intensity $M(x, y; \lambda)$ in its
+    focal plane. A pure phase mask *in that plane* would change nothing: the
+    sensor records $\big|\sqrt{M}\,e^{i\phi}\big|^2 = M$. Information appears
+    only when the DOE sits a distance $\delta$ away, because propagation is
+    **linear in the field** while the sensor is **quadratic in it** --
+    neighbouring image points interfere and the phase structure of $t(x,y)$
+    becomes intensity structure.
+
+    Per wavelength the model is four operations on the focal-plane complex
+    field $U = \sqrt{M}\,e^{i\psi}$:
+
+    1. **back-propagate** by $-\delta$ to the DOE plane (angular spectrum),
+    2. **apply the DOE**: $\;U \mapsto U\,\exp\!\big(i\,\tfrac{2\pi}{\lambda}\,[n(\lambda)-1]\,t\big)$,
+    3. **propagate** by $+\delta$ back to the focal plane -- the
+       phase-to-intensity conversion,
+    4. **relay** 1:1 to the sensor. At $f/1.65$ the relay's coherent cutoff
+       $\mathrm{NA}/\lambda \approx 5.7\times 10^{5}$ cy/m exceeds the Nyquist
+       of the 3.45 um grid, so the relay is a perfect inversion -- a flip.
+
+    Steps 1-4 are exactly the function `to_focal` defined below. Each
+    propagation uses the angular-spectrum transfer function
+
+    $$
+    H(f_x, f_y) = \exp\!\left[\,i\,\frac{2\pi\delta}{\lambda}
+    \sqrt{1 - (\lambda f_x)^2 - (\lambda f_y)^2}\;\right],
+    $$
+
+    exact for propagating spatial frequencies, with evanescent components
+    zeroed. This is why the simulation grid must run at (or below) the physical
+    sensor pitch: the conversion over $\delta$ needs the frequencies with
+    $\pi \lambda \delta f^2 \sim 1$, which a pooled-down grid cannot represent.
+
+    ### Why Monte Carlo, and why the phase screens are fixed
+
+    Incoherent superposition means intensities -- not fields -- add across
+    mutually independent emitters. The model emulates that with $K$ *fixed*
+    random phase screens $\psi_k$: build one coherent field per screen,
+    propagate it through `to_focal`, square its magnitude, and average.
+    Because the screens never change during training, the average is a
+    deterministic, differentiable surrogate for the incoherent sum -- and it is
+    what makes activation checkpointing exact (a recomputed bin reproduces the
+    identical field).
+
+    The same operator applied to the derivative fields
+    $\partial U/\partial\sigma = \tfrac{1}{2}\,\big(\partial M/\partial\sigma\big)/\sqrt{M}\;e^{i\psi_k}$
+    yields the intensity derivatives
+    $\partial I/\partial\sigma = 2\,\mathrm{Re}\big\{\overline{\mathcal{L}U}\;\mathcal{L}U'\big\}$
+    -- these are the $dx$/$dy$ channels that feed the Fisher information.
+
+    ### Memory: checkpointed wavelength bins
+
+    Rendering every wavelength bin keeps its FFT graph alive; 74 bins x 2
+    screens x 3 fields at sensor pitch exceeds GPU memory. Each bin is
+    therefore wrapped in `torch.utils.checkpoint`, trading one recomputation
+    per bin for holding the whole graph.
+
+    ### Grids: DOE cells vs. sensor pixels
+
+    The thickness map is accepted on the DOE cell grid and resampled
+    piecewise-constant (nearest) onto the sensor grid before the phase screen
+    is formed -- one DOE structure, one block of detector pixels, exactly as it
+    would be lithographed. Autograd flows through the resample, so the MLP
+    still receives gradients on its own cell grid.
+    """)
+    return
+
+
+@app.cell
+def _(torch):
+    def angular_spectrum_propagate(field, wavelength, distance, pixel_pitch):
+        """Propagate a complex field a signed ``distance`` (m) on a Cartesian grid.
+
+        Applies the band-limited angular-spectrum transfer function
+        ``H = exp(i 2 pi distance / lambda * sqrt(1 - (lambda fx)^2 - (lambda fy)^2))``
+        on the trailing two dimensions, so batched ``(N, H, W)`` fields
+        propagate together. Evanescent components (where the square-root
+        argument is negative) are zeroed.
+        """
+        h, w = field.shape[-2:]
+        fy = torch.fft.fftfreq(h, d=pixel_pitch, device=field.device)
+        fx = torch.fft.fftfreq(w, d=pixel_pitch, device=field.device)
+        fy, fx = torch.meshgrid(fy, fx, indexing="ij")
+        argument = 1.0 - (wavelength * fx) ** 2 - (wavelength * fy) ** 2
+        propagating = argument.clamp_min(0.0)
+        transfer = torch.exp(1j * (2 * torch.pi / wavelength) * distance * torch.sqrt(propagating))
+        transfer = transfer * (argument >= 0).to(transfer.dtype)
+        spectrum = torch.fft.fft2(field, norm="ortho")
+        return torch.fft.ifft2(spectrum * transfer, norm="ortho")
+
+    return (angular_spectrum_propagate,)
+
+
+@app.cell
+def _(angular_spectrum_propagate, torch):
+    def to_focal(field, wavelength, doe_transmission, defocus, pixel_pitch):
+        """Image a focal-plane field through the defocused DOE onto the sensor.
+
+        The four-step chain from the section above: back-propagate by
+        ``-defocus`` to the DOE plane, multiply by the DOE complex
+        transmission ``exp(i phase)``, propagate by ``+defocus`` back to the
+        focal plane (the interference there converts the chromatic phase into
+        intensity), then apply the unit-magnification relay, which is a flip
+        at sensor pitch.
+
+        Returns the complex field at the sensor plane; callers form
+        intensities ``abs(.).**2`` or the Fisher cross terms from it.
+        """
+        # Focal plane -> DOE plane.
+        field = angular_spectrum_propagate(field, wavelength, -defocus, pixel_pitch)
+        # The DOE imparts its chromatic phase.
+        field = field * doe_transmission
+        # DOE plane -> focal plane: phase becomes intensity here.
+        field = angular_spectrum_propagate(field, wavelength, defocus, pixel_pitch)
+        # 1:1 relay inversion.
+        return torch.flip(field, dims=(-2, -1))
+
+    return (to_focal,)
+
+
+@app.cell
+def _(nn, np, torch):
     class SineLayer(nn.Module):
         def __init__(self, in_features, out_features, bias=True, is_first=False, omega_0=30):
             super().__init__()
@@ -223,9 +429,20 @@ def _(DOE_GAP_RANGE, SENSOR_PIXEL_PITCH, nn, np, torch):
             thickness = self.net(coords)
             return thickness
 
+    return (MaskThicknessMLP,)
 
+
+@app.cell
+def _(torch):
     def generate_psf_stack(thickness_map, wavelengths, n_lambda, aperture_mask, device):
-        """
+        """Far-field (pupil-plane) PSF stack -- the quick intuition model.
+
+        Forms the pupil ``P = aperture * exp(i 2pi/lambda (n-1) t)``, takes its
+        centered FFT, and normalizes each wavelength's intensity to unit flux.
+        This is the *pupil-plane* alternative to the near-focus Monte Carlo
+        model below; it is kept for exploring designs before committing to
+        the expensive image-plane simulation.
+
         thickness_map: Tensor of shape (H, W) in meters
         wavelengths: Tensor of shape (K,) in meters
         n_lambda: Tensor of shape (K,) representing refractive index per wavelength
@@ -259,20 +476,12 @@ def _(DOE_GAP_RANGE, SENSOR_PIXEL_PITCH, nn, np, torch):
 
         return psf_stack
 
+    return (generate_psf_stack,)
 
-    def _angular_spectrum(field, wavelength, distance, pixel_pitch):
-        """Propagate a complex field on a fixed Cartesian grid."""
-        h, w = field.shape[-2:]
-        fy = torch.fft.fftfreq(h, d=pixel_pitch, device=field.device)
-        fx = torch.fft.fftfreq(w, d=pixel_pitch, device=field.device)
-        fy, fx = torch.meshgrid(fy, fx, indexing="ij")
-        argument = 1.0 - (wavelength * fx) ** 2 - (wavelength * fy) ** 2
-        propagating = argument.clamp_min(0.0)
-        transfer = torch.exp(1j * (2 * torch.pi / wavelength) * distance * torch.sqrt(propagating))
-        transfer = transfer * (argument >= 0).to(transfer.dtype)
-        spectrum = torch.fft.fft2(field, norm="ortho")
-        return torch.fft.ifft2(spectrum * transfer, norm="ortho")
 
+@app.cell
+def _(DOE_GAP_RANGE, SENSOR_PIXEL_PITCH, to_focal, torch):
+    from torch.utils.checkpoint import checkpoint
 
     def generate_incoherent_relay_stack(
         thickness_map,
@@ -305,6 +514,10 @@ def _(DOE_GAP_RANGE, SENSOR_PIXEL_PITCH, nn, np, torch):
           4. The relay is a 1:1 inversion on these grids -- its coherent
              cutoff (NA/lambda ~ 5.7e5 cy/m at f/1.65) exceeds the Nyquist of
              a 3.45 um pitch -- so it is applied as a flip.
+
+        Steps 1-4 are the ``to_focal`` operator, shared verbatim with the
+        hyperspectral evaluation pipeline so training and evaluation use the
+        same physics.
 
         ``thickness_map`` may be a single (H, W) map or a per-frame (F, H, W)
         stack of windows of a larger DOE, so each frame samples the DOE region
@@ -370,17 +583,6 @@ def _(DOE_GAP_RANGE, SENSOR_PIXEL_PITCH, nn, np, torch):
             phase = (2 * torch.pi / wavelength) * (index - 1.0) * thickness_in
             doe = torch.exp(1j * phase)
 
-            def to_focal(field):
-                # Focal plane -> back-propagate (-z_gap) to the DOE plane,
-                # apply the DOE phase, propagate (+z_gap) back to the focal
-                # plane (where the chromatic phase converts to intensity),
-                # then the unit-magnification relay, which is a flip at
-                # sensor pitch. Mirrors transform_hyperspectral_slice.
-                field = _angular_spectrum(field, wavelength, -z_gap, pixel_pitch)
-                field = field * doe
-                field = _angular_spectrum(field, wavelength, z_gap, pixel_pitch)
-                return torch.flip(field, dims=(-2, -1))
-
             sample_images_sum = 0
             sample_dx_sum = 0
             sample_dy_sum = 0
@@ -391,9 +593,10 @@ def _(DOE_GAP_RANGE, SENSOR_PIXEL_PITCH, nn, np, torch):
                 field_x = (0.5 * d_morphology / torch.sqrt(morphology.clamp_min(1e-12))) * random_phase
                 field_y = (0.5 * d_morphology_y / torch.sqrt(morphology.clamp_min(1e-12))) * random_phase
 
-                relay_field = to_focal(field)
-                relay_field_x = to_focal(field_x)
-                relay_field_y = to_focal(field_y)
+                # to_focal: -delta to the DOE, apply doe, +delta back, relay flip.
+                relay_field = to_focal(field, wavelength, doe, z_gap, pixel_pitch)
+                relay_field_x = to_focal(field_x, wavelength, doe, z_gap, pixel_pitch)
+                relay_field_y = to_focal(field_y, wavelength, doe, z_gap, pixel_pitch)
 
                 sample_images_sum = sample_images_sum + torch.abs(relay_field).square()
                 sample_dx_sum = sample_dx_sum + (2 * torch.real(torch.conj(relay_field) * relay_field_x))
@@ -429,11 +632,32 @@ def _(DOE_GAP_RANGE, SENSOR_PIXEL_PITCH, nn, np, torch):
 
         return outputs, dx_outputs, dy_outputs
 
-    return (
-        MaskThicknessMLP,
-        generate_incoherent_relay_stack,
-        generate_psf_stack,
-    )
+    return (generate_incoherent_relay_stack,)
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""
+    ## The simulated object
+
+    The inverse design needs an *object* whose images it can score. Here it is a
+    Gaussian blob of width $\sigma$ translating across the field of view over
+    100 frames -- a stand-in for a point source scanned through the scene. Two
+    things matter for the estimator:
+
+    - Each frame's blob **centroid** is the position parameter to be localized.
+      The analytic derivatives $\partial M/\partial\sigma_x$,
+      $\partial M/\partial\sigma_y$ are the spatial *score components*: through
+      the optical model they become $\partial I/\partial x$ and
+      $\partial I/\partial y$, two of the three Fisher-information columns.
+      (For a symmetric Gaussian, shifting the blob and widening it produce the
+      same local intensity gradients, which is why $M\,x^2/\sigma^3$ appears.)
+    - Because the blob *moves*, each frame samples a different patch of the
+      DOE. Training therefore crops a sensor-pitch window around each centroid
+      and the matching DOE-cell window from the full thickness map -- see the
+      training section.
+    """)
+    return
 
 
 @app.cell
@@ -488,6 +712,25 @@ def _(np, shape, sigma_x, sigma_y, x, y):
 
 
 @app.cell
+def _(mo):
+    mo.md(r"""
+    ## Material dispersion: where the color sensitivity comes from
+
+    The DOE phase is proportional to $[n(\lambda) - 1]/\lambda$, so the PSF is
+    only wavelength-dependent if the polymer index $n(\lambda)$ varies across
+    the band -- that dispersion *is* the spectral encoding. The index comes
+    from a measured Cauchy table (an Excel file with columns
+    `"Wavelength (m)"` and `"n"`), cubic-spline interpolated onto the
+    simulation bins.
+
+    In the editor, browse for a different material below; leave the browser
+    empty to use `MATERIAL_XLSX`. Headless runs always read
+    `[paths].material_xlsx` from the TOML -- the browser has no effect there.
+    """)
+    return
+
+
+@app.cell
 def _(MATERIAL_XLSX, Path, mo):
     # Browse for an alternative Cauchy table; the browser starts in the
     # configured material directory so it also works headless, where no
@@ -523,6 +766,38 @@ def _(CubicSpline, MATERIAL_XLSX, cauchy, pd, torch, wavelengths):
     print(f"Tensor shape: {n_lambda.shape}") # Should output torch.Size([74])
     wavelengths_tensor
     return n_lambda, wavelengths_tensor
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""
+    ## Parameterizing the design: a neural thickness map
+
+    The DOE relief is stored as a **continuous function**, not a pixel array: a
+    small MLP maps normalized DOE coordinates $(u, v) \in [-1, 1]^2$ to a
+    thickness value. Its layers use sine activations,
+    $x \mapsto \sin(\omega_0 W x + b)$ with $\omega_0 = 30$ -- a *SIREN*
+    network, chosen because sinusoidal basis functions naturally represent the
+    smooth, oscillatory phase profiles that diffractive optics care about; a
+    ReLU net would bias the design toward piecewise-linear blazed gratings.
+    A Softplus output keeps $t \geq 0$ (you cannot etch negative photoresist),
+    and the final scale sets the height budget `DOE_MAX_THICKNESS`.
+
+    Why a network instead of a free pixel map?
+
+    - **Resolution independence** -- the same design evaluates on `DOE_RASTER`
+      or on a finer fabrication grid.
+    - **Smoothness prior** -- low-frequency structure is easier to lithograph
+      and less prone to overfitting the Monte Carlo noise.
+    - **Differentiability** -- gradients from the optical model flow straight
+      into the geometry. This is the essence of inverse design: the design
+      space is the network's weights, and the loss is a physics simulation.
+
+    The cell below also builds the entrance `aperture_mask` from
+    `APERTURE_TYPE`/`APERTURE_RADIUS_FRACTION` -- the stop used by the
+    far-field `generate_psf_stack` intuition model.
+    """)
+    return
 
 
 @app.cell
@@ -568,15 +843,46 @@ def _(
 
 
 @app.cell
-def _(
-    DOE_GAP,
-    DOE_GAP_RANGE,
-    DOE_MAX_THICKNESS,
-    DOE_PIXEL_PITCH,
-    SENSOR_PIXEL_PITCH,
-    nn,
-    torch,
-):
+def _(mo):
+    mo.md(r"""
+    ## The objective: Fisher information and the Cramer-Rao lower bound
+
+    For Poisson photon counts with mean $\mu_p = N_{\mathrm{ph}} I_p(\theta) + b$
+    at sensor pixel $p$, the Fisher information matrix of
+    $\theta = (x, y, \lambda)$ is
+
+    $$
+    F_{ij} = \sum_p \frac{1}{\mu_p}\,
+    \frac{\partial \mu_p}{\partial \theta_i}\,
+    \frac{\partial \mu_p}{\partial \theta_j},
+    \qquad
+    \mathrm{Cov}(\hat\theta) \succeq F^{-1},
+    $$
+
+    the Cramer-Rao lower bound: no unbiased estimator can beat $F^{-1}$, so
+    minimizing it makes *any* downstream decoder's job easier -- the objective
+    is estimator-agnostic, which is what makes this an optimal-design problem
+    rather than a learning problem.
+
+    The three Jacobian columns are exactly what the optical model produced:
+    $\partial I/\partial x$ and $\partial I/\partial y$ from the Monte Carlo
+    derivative channels (the $2\,\mathrm{Re}\{\overline{\mathcal{L}U}\mathcal{L}U'\}$
+    terms), and $\partial I/\partial\lambda$ from central differences across
+    adjacent wavelength bins. Each column is pre-multiplied by a
+    `parameter_scales` factor (50 nm, 50 nm, 100 nm) so $F$ is dimensionless
+    and the three uncertainties enter the loss comparably; the returned CRLB
+    diagonal is un-scaled back to $\mathrm{nm}^2$.
+
+    **A-optimal design**: minimize $\mathrm{tr}\,F^{-1}$, the sum of the
+    variance lower bounds. A tiny ridge keeps $F^{-1}$ finite in the first
+    epochs, when the random-init DOE is nearly informationless and $F$ is
+    singular.
+    """)
+    return
+
+
+@app.cell
+def _(torch):
     def crlb_from_images(
         mean_image, dx_image, dy_image, wavelengths_nm,
         photons_per_bin=1e5, background_photons=1.0, frame_stride=10,
@@ -626,7 +932,53 @@ def _(
         )
         return torch.diagonal(covariance), fisher
 
+    return (crlb_from_images,)
 
+
+@app.cell
+def _(mo):
+    mo.md(r"""
+    ## Training loop: back-propagating through wave optics
+
+    `train_mask` is the inverse-design engine. One epoch:
+
+    1. **Evaluate the design** -- the MLP is queried at every DOE cell center,
+       giving `thickness_full` on `DOE_RASTER` (meters).
+    2. **Crop windows** -- for each frame, the sensor-patch around the blob
+       centroid and the *physically aligned* DOE-cell window (patch starts are
+       snapped to DOE cell boundaries so the two windows cover the same region).
+    3. **Render** -- `generate_incoherent_relay_stack` produces the mean image
+       and the $dx$/$dy$ derivative channels; each wavelength bin runs under
+       activation checkpointing (memory), recomputing its FFT graph in
+       backward.
+    4. **Score** -- `crlb_from_images` assembles the Fisher matrix over all
+       pixels and bins; the loss is its trace (A-optimal design).
+    5. **Descend** -- Adam updates the MLP weights *and* the defocus gap. The
+       gap is stored as a logit and squashed into `DOE_GAP_RANGE` by a
+       sigmoid, so no update can leave the physical interval; gradients are
+       norm-clipped because the CRLB surface is rough early on.
+
+    Every epoch that improves the loss snapshots the weights, DOE windows,
+    image stack, and gap -- the diagnostics and export cells use the *best*
+    epoch, not the last one. All knobs (epochs, learning rate, patch size,
+    photon budget, which parameters to optimize, ...) are keyword arguments
+    with defaults set in the config cell's `TRAINING_CONFIG`, overridable by
+    the TOML `[training]` section.
+    """)
+    return
+
+
+@app.cell
+def _(
+    DOE_GAP,
+    DOE_GAP_RANGE,
+    DOE_MAX_THICKNESS,
+    DOE_PIXEL_PITCH,
+    SENSOR_PIXEL_PITCH,
+    crlb_from_images,
+    nn,
+    torch,
+):
     def train_mask(
         mlp,
         coords,
@@ -785,6 +1137,20 @@ def _(
 
 
 @app.cell
+def _(mo):
+    mo.md(r"""
+    ## Run the inverse design
+
+    The cell below executes the loop on the GPU (or CPU fallback), then
+    restores the best-epoch weights and regenerates the **full** DOE map --
+    the training windows are only patches, but fabrication and evaluation need
+    the complete `DOE_RASTER` relief. Set `RUN_TRAINING = False` (or the TOML
+    `[run].run_training`) to skip it and reuse the saved artifacts.
+    """)
+    return
+
+
+@app.cell
 def _(
     DOE_MAX_THICKNESS,
     M_stack,
@@ -831,6 +1197,30 @@ def _(
         history, loss, thickness, psf, gap, best_state = [], float('inf'), None, None, None, None
         thickness_full = None
     return gap, psf, thickness, thickness_full
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""
+    ## Reading the diagnostics
+
+    **Phase panels** (left column of the first figure): the DOE window
+    thickness, the wrapped phase $\phi \bmod 2\pi$, and the phase in *cycles*
+    -- all at 550 nm on the DOE cell grid. The cycles panel is the one to look
+    at for manufacturability: plateaus separated by steep jumps are blazed
+    grating structures; anything beyond a few waves is aliasing territory.
+
+    **Intensity panels** (right column): the Monte Carlo mean PSF at 550 nm,
+    its logarithm (where the speckle-like sidelobe structure is visible), and
+    the wavelength-averaged output. The second figure compares the outputs at
+    the band edges -- the difference image *is* the spectral encoding this
+    design produces. If the 380 nm and 750 nm PSFs look identical, the design
+    is not encoding color and the spectral CRLB will reflect it.
+
+    Both panels span the same physical patch; extents are drawn in microns on
+    each grid's own pitch.
+    """)
+    return
 
 
 @app.cell
@@ -1008,6 +1398,25 @@ def _(
 
 
 @app.cell
+def _(mo):
+    mo.md(r"""
+    ## Exporting the mask for fabrication and evaluation
+
+    Three artifacts, written to the working directory:
+
+    - `profile.npy` -- the full thickness map on `DOE_RASTER`, in meters, at
+      `DOE_PIXEL_PITCH`. This is the fabrication input: one DOE cell per array
+      element, piecewise-constant by construction.
+    - `psf.npy` -- the best-epoch sensor-pitch image stack
+      (frame x wavelength x y x x), for offline analysis.
+    - `gap.npy` -- the *learned* DOE-to-focal-plane offset. The evaluation
+      pipeline reads it so the simulated bench matches the design that was
+      actually optimized, rather than the nominal `DOE_GAP`.
+    """)
+    return
+
+
+@app.cell
 def _(DOE_GAP_RANGE, SAVE, gap, np, psf, thickness_full, torch):
     if SAVE and thickness_full is not None:
         # Full DOE thickness map (DOE_RASTER at DOE_PIXEL_PITCH, meters) for the
@@ -1021,7 +1430,36 @@ def _(DOE_GAP_RANGE, SAVE, gap, np, psf, thickness_full, torch):
 
 
 @app.cell
-def _(DOE_GAP, SENSOR_PIXEL_PITCH, torch):
+def _(mo):
+    mo.md(r"""
+    ## Evaluation on real hyperspectral video
+
+    The trained relief is applied to the DynaSpec *running-frog* cube with
+    **the same physics used in training** -- `to_focal` -- so the video shows
+    what the designed camera would actually record, not a different model. The
+    pipeline is deliberately streaming, because a hyperspectral video does not
+    fit in memory:
+
+    - `transform_hyperspectral_slice` -- one wavelength slice through the DOE:
+      resample the DOE raster onto the slice raster (piecewise-constant),
+      draw fixed random phase screens, propagate, square. Runs under
+      `inference_mode` on the GPU, one slice at a time.
+    - `iter_hyperspectral_mat` -- one temporal frame's MAT file (v7.3/HDF5):
+      the files are chunked with *all* wavelengths per chunk, so one frame is
+      loaded into CPU RAM once and slices are moved to the GPU individually.
+    - `iter_hyperspectral_sequence` -- every numbered MAT frame in a directory.
+    - `transform_hyperspectral_sequence` -- per temporal frame, sums the
+      transformed spectral slices on the CPU (the coded-aperture exposure:
+      all bands hit the sensor simultaneously) and writes `frame_*.npy`.
+
+    `monte_carlo_samples` controls the incoherent-sum averaging; 4 is a good
+    speed/quality trade for video.
+    """)
+    return
+
+
+@app.cell
+def _(DOE_GAP, SENSOR_PIXEL_PITCH, to_focal, torch):
     def transform_hyperspectral_slice(
         intensity_slice,
         wavelength,
@@ -1035,12 +1473,12 @@ def _(DOE_GAP, SENSOR_PIXEL_PITCH, torch):
         """Apply the near-focus DOE model to one ``(H, W)`` wavelength slice.
 
         ``intensity_slice`` is the focal-plane intensity of the 35 mm lens at
-        this wavelength. The field is back-propagated (-doe_gap) to the DOE
-        plane, multiplied by the DOE phase, propagated (+doe_gap) back to the
-        focal plane -- where the chromatic phase converts to intensity -- and
-        then relayed 1:1 to the sensor. The unit-magnification f/1.65 relay is
-        a pure inversion at sensor pitch (its coherent cutoff exceeds the grid
-        Nyquist), so the relay is applied as a flip.
+        this wavelength. One fixed random phase screen per Monte Carlo sample
+        turns it into a field, which passes through ``to_focal`` --
+        back-propagation (-doe_gap) to the DOE plane, the DOE phase,
+        propagation (+doe_gap) to the focal plane where the chromatic phase
+        converts to intensity, and the 1:1 relay flip -- and the sample
+        intensities are averaged.
 
         ``thickness_map`` may be on the DOE cell grid; it is resampled
         piecewise-constant onto the slice raster, so one DOE structure stays
@@ -1073,14 +1511,20 @@ def _(DOE_GAP, SENSOR_PIXEL_PITCH, torch):
             )
             field = torch.sqrt(intensity_slice) * torch.exp(1j * random_phase)
             if doe_gap > 0:
-                field = _angular_spectrum(field, wavelength, -doe_gap, pixel_pitch)
-            field = field * doe
-            if doe_gap > 0:
-                field = _angular_spectrum(field, wavelength, doe_gap, pixel_pitch)
-            outputs.append(torch.flip(field, dims=(-2, -1)).abs().square())
+                # The same operator the training model uses.
+                relayed = to_focal(field, wavelength, doe, doe_gap, pixel_pitch)
+            else:
+                # Zero gap: the mask sits in the imaged plane; only the relay
+                # inversion remains and the phase encodes nothing.
+                relayed = torch.flip(field * doe, dims=(-2, -1))
+            outputs.append(relayed.abs().square())
         return torch.stack(outputs).mean(0)
 
+    return (transform_hyperspectral_slice,)
 
+
+@app.cell
+def _(DOE_GAP, SENSOR_PIXEL_PITCH, torch, transform_hyperspectral_slice):
     def iter_hyperspectral_mat(
         mat_path,
         thickness_map,
@@ -1140,7 +1584,11 @@ def _(DOE_GAP, SENSOR_PIXEL_PITCH, torch):
                     )
                 yield wavelength_nm, transformed.detach().cpu()
 
+    return (iter_hyperspectral_mat,)
 
+
+@app.cell
+def _(DOE_GAP, SENSOR_PIXEL_PITCH, iter_hyperspectral_mat):
     def iter_hyperspectral_sequence(
         sequence_dir,
         thickness_map,
@@ -1172,7 +1620,11 @@ def _(DOE_GAP, SENSOR_PIXEL_PITCH, torch):
             ):
                 yield frame_index, wavelength_nm, transformed_slice
 
+    return
 
+
+@app.cell
+def _(DOE_GAP, SENSOR_PIXEL_PITCH, iter_hyperspectral_mat, torch):
     def transform_hyperspectral_sequence(
         sequence_dir,
         thickness_map,
@@ -1232,6 +1684,41 @@ def _(DOE_GAP, SENSOR_PIXEL_PITCH, torch):
 
 
     return (transform_hyperspectral_sequence,)
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""
+    ## Run the evaluation and render the video
+
+    The cell below loads `profile.npy` (and the trained `gap.npy` when
+    present), interpolates the Cauchy table onto each source wavelength, and
+    streams the whole sequence. The two video cells then encode the frames
+    losslessly (FFV1) with a *global* intensity mapping so the video does not
+    flicker, plus an optional RGB comparison rendered straight from the source
+    cube.
+
+    ### A complete CHPC batch script
+
+    ```bash
+    #!/bin/bash
+    #SBATCH --job-name=coded-doe
+    #SBATCH --partition=gpu
+    #SBATCH --gres=gpu:1
+    #SBATCH --cpus-per-task=8
+    #SBATCH --mem=32G
+    #SBATCH --time=8:00:00
+    cd /scratch/baird/hypercam/src/notebooks
+    export CODED_MASK_CONFIG=/scratch/baird/hypercam/run.toml
+    uv run python coded_mask.py
+    ```
+
+    Everything the batch needs comes from the TOML: material and data paths,
+    `seed` for reproducibility, and the switches -- set
+    `create_video = false` if OpenCV/FFmpeg are unavailable on the compute
+    nodes, and point `[paths].transformed_dir` at your scratch area.
+    """)
+    return
 
 
 @app.cell
