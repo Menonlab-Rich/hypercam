@@ -744,14 +744,31 @@ def _(np, shape, sigma_x, sigma_y, x, y):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## Material dispersion: where the color sensitivity comes from
+    ## Spectral encoding: the 1/lambda scaling and material dispersion
 
-    The DOE phase is proportional to $[n(\lambda) - 1]/\lambda$, so the PSF is
-    only wavelength-dependent if the polymer index $n(\lambda)$ varies across
-    the band -- that dispersion *is* the spectral encoding. The index comes
-    from a measured Cauchy table (an Excel file with columns
-    `"Wavelength (m)"` and `"n"`), cubic-spline interpolated onto the
-    simulation bins.
+    The relief imprints the phase
+
+    $$
+    \phi(x, y; \lambda) = \frac{2\pi}{\lambda}\,\big[n(\lambda) - 1\big]\,h(x, y),
+    $$
+
+    and *two* distinct mechanisms make it wavelength-dependent. The first is
+    the explicit $1/\lambda$: even a dispersionless material ($n = n_0$
+    constant) gives $\phi \propto (n_0 - 1)h/\lambda$, so a fixed relief acts
+    like a diffractive lens whose power scales with wavelength -- PSF
+    structure varies across the band with no material dispersion at all. The
+    second is the polymer's dispersion $n(\lambda)$ itself, which modulates
+    the numerator and adds further (nonlinear) channel separation on top of
+    the $1/\lambda$ scaling. The model carries both exactly: every phase
+    screen is evaluated per spectral bin as $2\pi[n(\lambda_k) - 1]\,t/\lambda_k$
+    (and the angular-spectrum transfer function contributes its own
+    $\lambda$-dependence to the propagation).
+
+    $n(\lambda)$ comes from a measured Cauchy table (an Excel file with
+    columns `"Wavelength (m)"` and `"n"`), cubic-spline interpolated onto the
+    simulation bins. A useful sanity check of the first mechanism: evaluate
+    `generate_psf_stack` with a flat `n_lambda` -- the PSFs still change
+    strongly across the band, purely from $1/\lambda$.
 
     In the editor, browse for a different material below; leave the browser
     empty to use `MATERIAL_XLSX`. Headless runs always read
