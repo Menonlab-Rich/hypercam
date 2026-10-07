@@ -1,3 +1,0 @@
-dfdx::tensor::Tensor<(dfdx::shapes::Const<10>, usize, dfdx::shapes::Const<2>), f32, dfdx::tensor::Cuda>
-traits::ErgoTensor<(dfdx::shapes::Const<10>, dfdx::shapes::Const<2>, usize), f32, dfdx::tensor::Cuda, dfdx::tensor::NoneTape>
-dfdx::tensor::Tensor<(dfdx::shapes::Const<10>, usize, dfdx::shapes::Const<2>), f32, dfdx::tensor::Cuda>: dfdx::tensor_ops::TryMatMul<traits::ErgoTensor<(dfdx::shapes::Const<10>, dfdx::shapes::Const<2>, usize), f32, dfdx::tensor::Cuda, dfdx::tensor::NoneTape>>

@@ -1,1 +1,0 @@
-dfdx::tensor::Tensor<(dfdx::shapes::Const<10>, usize, dfdx::shapes::Const<2>), f32, dfdx::tensor::Cuda>
