@@ -1,0 +1,68 @@
+<type>[(scope)][!]: <short description>
+
+
+# A semantic commit follows the [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) standard to automate versioning and changelogs. [1, 2] 
+# ## Basic Structure
+# 
+# <type>[optional scope][!]: <description>
+# 
+# [optional body]
+# 
+# [optional footer(s)]
+# 
+# ------------------------------
+# ## Commit Message Template
+# 
+# <type>(<scope>): <short description>
+# 
+# [optional longer body: explain "what" and "why", not "how"]
+# 
+# [optional footer: e.g., Fixes #123 or BREAKING CHANGE: description]
+# 
+# ------------------------------
+# ## Common Commit Types
+# 
+# * feat: Introduces a new feature (correlates with a MINOR semantic version bump)
+# * fix: Patches a bug (correlates with a PATCH semantic version bump)
+# * docs: Documentation-only changes
+# * style: Changes that do not affect code meaning (white-space, formatting, missing semi-colons)
+# * refactor: Code change that neither fixes a bug nor adds a feature
+# * perf: Code change that improves performance
+# * test: Adding missing tests or correcting existing tests
+# * build: Changes that affect the build system or external dependencies
+# * ci: Changes to CI configuration files and scripts
+# * chore: Other changes that don't modify src or test files
+# * revert: Reverts a previous commit [1, 2, 3, 4] 
+# 
+# ------------------------------
+# ## Breaking Changes
+# 
+# * Add an ! right before the colon (e.g., feat(api)!: drop v1 endpoints).
+# * Or include a BREAKING CHANGE: footer in the commit body.
+# * This triggers a MAJOR version bump in semantic versioning. [1, 2, 5] 
+# 
+# ------------------------------
+# ## Examples
+# Simple Feature:
+# 
+# feat(auth): add OAuth2 login button
+# 
+# Bug Fix with Issue Reference:
+# 
+# fix(parser): handle null pointer exception on empty input
+# 
+# Closes #402
+# 
+# Breaking Change:
+# 
+# refactor(api)!: remove deprecated user profile endpoints
+# 
+# BREAKING CHANGE: /api/v1/profile is removed; use /api/v2/profile instead.
+# 
+# 
+# [1] [https://www.conventionalcommits.org](https://www.conventionalcommits.org/en/v1.0.0/)
+# [2] [https://www.conventionalcommits.org](https://www.conventionalcommits.org/en/v1.0.0-beta.2/)
+# [3] [https://gist.github.com](https://gist.github.com/joshbuchea/6f47e86d2510bce28f8e7f42ae84c716)
+# [4] [https://gist.github.com](https://gist.github.com/kolynzb/2e6a57511e300940773dc2e2fa8c0567)
+# [5] [https://gist.github.com](https://gist.github.com/qoomon/5dfcdf8eec66a051ecd85625518cfd13)
+# 
