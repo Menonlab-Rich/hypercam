@@ -19,9 +19,11 @@ wheels/
 
 # Heavy experiment data: raw EVT3 recordings, exported videos, CAD workspace.
 # See data/README.md for provenance and naming conventions; only the README
-# itself is tracked.
+# itself is tracked. data/.lakefs-commit is tracked as well: it binds each
+# git commit to the lakeFS commit holding the matching data snapshot.
 data/**
 !data/README.md
+!data/.lakefs-commit
 
 # Analysis outputs are delivered through the data image, not git; only the
 # self-describing README is tracked. Superseded runs (results/archive/) are

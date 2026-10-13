@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+#
+#==============================================================================
+# Author:        Richard G. Baird
+# Date Modified: 2026-10-08
+# Notice:        This file was authored or modified with the assistance of
+#                Kilo (GLM, z-ai/glm-5.3-flash).
+#==============================================================================
+#
+# prepare-commit-msg — keep the data <-> git alignment visible in git log.
+#
+# When the tracked pointer file data/.lakefs-commit names a lakeFS commit,
+# append a `Data-lakefs-commit: <hash>` trailer to the commit message, so
+# `git log --grep='Data-lakefs-commit'` finds the data snapshot for any
+# commit without opening the pointer file.
+#
+# The pointer file itself remains the authoritative, machine-readable record;
+# this trailer is a convenience mirror and is appended at most once.
+#
+# Install (one-time, per clone):
+#   git config core.hooksPath scripts/git/hooks
+#
+# Git invokes this hook as: prepare-commit-msg <msgfile> <source> [<sha>]
+
+set -euo pipefail
+
+msg_file=${1:?prepare-commit-msg requires the message file argument}
+source_kind=${2:-}
+
+# Merge and squash commits do not carry a fresh data snapshot.
+case "$source_kind" in
+    merge|squash) exit 0 ;;
+esac
+
+pointer="data/.lakefs-commit"
+
+# Prefer the working-tree pointer (the file hypercam-data-commit just wrote);
+# fall back to the staged blob for commits that delete or rename it.
+lakefs_commit=""
+if [[ -f $pointer ]]; then
+    lakefs_commit=$(awk -F': *' '/^commit:/ { print $2; exit }' "$pointer")
+elif git show ":$pointer" >/dev/null 2>&1; then
+    lakefs_commit=$(git show ":$pointer" | awk -F': *' '/^commit:/ { print $2; exit }')
+fi
+
+# Nothing to record (no pointer yet, or the explicit `commit: none` marker).
+[[ -n $lakefs_commit && $lakefs_commit != none ]] || exit 0
+
+# Never duplicate the trailer (e.g. `git commit --amend`, or the trailer
+# already supplied by `hypercam-data-commit --git-commit`).
+if grep -q '^Data-lakefs-commit:' "$msg_file"; then
+    exit 0
+fi
+
+printf '\nData-lakefs-commit: %s\n' "$lakefs_commit" >> "$msg_file"
+exit 0

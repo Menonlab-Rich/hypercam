@@ -8,29 +8,48 @@ recordings with the acquisition script in `scripts/`.
 ## How this directory is version-controlled
 
 Although the files never enter git, every commit still maps to an exact data
-snapshot: `scripts/data_image_build.sh` packs `raw/` and `cad_models/` (plus
-the untracked `results/` outputs) into a `FROM scratch` container image (see
-the repo-root `Containerfile`) and publishes it to GHCR tagged with the
-commit SHA. The build runs from this machine (or the lab's self-hosted CI
-runner) on every push — see `.github/workflows/data-image.yml`.
+snapshot through **two aligned mechanisms**:
 
-On a machine **without** local data, fetch and mount the snapshot matching
-your checkout without copying it out of the image:
+**lakeFS (primary).** `data/.lakefs-commit` — the only other tracked file in
+this directory — records the lakeFS repository and commit holding this
+checkout's snapshot (`raw/`, `cad_models/` and the untracked `results/`
+outputs). On the machine with the data, `hypercam-data-commit` uploads
+changed files, commits the lakeFS branch and stages the updated pointer so
+the next git commit carries the hash; everywhere else,
+`hypercam-data-checkout` restores the exact snapshot a git commit refers to:
+
+```bash
+hypercam-data-checkout                       # data for HEAD
+hypercam-data-checkout --git-ref HEAD~5      # data as of an older commit
+```
+
+See the root README's "Data version control" section for configuration and
+the `hypercam-data-status` drift report.
+
+**GHCR data image (fallback).** `scripts/data_image_build.sh` packs `raw/`
+and `cad_models/` (plus `results/`) into a `FROM scratch` container image
+(see the repo-root `Containerfile`) and publishes it to GHCR tagged with the
+commit SHA. The build runs from this machine (or the lab's self-hosted CI
+runner) on every push — see `.github/workflows/data-image.yml`. On a machine
+**without** local data and without a lakeFS endpoint, fetch and mount the
+snapshot matching your checkout without copying it out of the image:
 
 ```bash
 scripts/data_image_mount.sh --sha "$(git rev-parse HEAD)"
 ```
 
 That mounts the image read-only and points `data/raw`, `data/cad_models` and
-`results` at it via symlinks; `--unmount` releases it. See the root README's
-"Data version control" section for the full picture.
+`results` at it via symlinks; `--unmount` releases it. While the symlinks
+are in place the lakeFS commands refuse to run — unmount first.
 
 ## Layout
 
 ```
 data/
+├── .lakefs-commit             TRACKED pointer: git commit ↔ lakeFS data snapshot
 ├── raw/
 │   ├── evt3_raw/            Prophesee EVT3 recordings (*.raw) + trigger logs
+│   ├── etc/                 instrument metadata (QE curve for the IMX636 sensor)
 │   └── exported_videos/     human-viewable mp4 exports of selected recordings
 └── cad_models/              3D-printable chopper LED wheel (design + review renders)
 ```

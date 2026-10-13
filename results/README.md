@@ -1,11 +1,12 @@
 # results/ — analysis outputs
 
 This directory is **untracked by git** (the outputs are large binaries); it
-travels with the code through the commit-tagged data image instead — see the
-root README's "Data version control" section and
-`scripts/data_image_{build,mount}.sh`. Only this README is versioned, so a
-fresh clone can still learn what belongs here. Superseded runs live in
-`archive/` and are excluded from the image as well.
+travels with the code through the lakeFS data snapshot named by
+`data/.lakefs-commit` (restore anywhere with `hypercam-data-checkout`) and
+through the commit-tagged data image — see the root README's "Data version
+control" section and `scripts/data_image_{build,mount}.sh`. Only this README
+is versioned, so a fresh clone can still learn what belongs here. Superseded
+runs live in `archive/` and are excluded from the snapshot and image as well.
 
 Every analysis run writes a self-contained directory: **inputs, parameters
 and outputs travel together**, so a directory can be interpreted (and

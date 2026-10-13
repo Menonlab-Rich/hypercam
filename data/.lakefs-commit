@@ -1,0 +1,8 @@
+# Hypercam data <-> git alignment pointer (see README, 'Data version').
+# Tracked by git: the commit carrying this file names the lakeFS commit
+# holding the matching data snapshot (raw/, cad_models/, results/).
+repository: hypercam-data
+branch: main
+commit: none
+parent-git-commit: none
+recorded-at: none

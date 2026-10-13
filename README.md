@@ -37,6 +37,13 @@ hypercam/
 │   │   ├── duration_sweep.py              duration × accumulation-interval sweep (`hypercam-sweep`)
 │   │   ├── sweep_frames.py                per-cell frame snapshots + contact sheets (`hypercam-sweep-frames`)
 │   │   └── comparison_figure.py           multi-experiment poster figure (`hypercam-compare`)
+│   ├── data_versioning/       lakeFS ↔ git alignment (`hypercam-data-*` commands)
+│   │   ├── cli.py             commit / checkout / status entry points
+│   │   ├── sync.py            transfer planning + commit/checkout flows
+│   │   ├── remote.py          lakeFS connection and object transfers
+│   │   ├── pointer.py         the data/.lakefs-commit pointer record
+│   │   ├── config.py          endpoint/credential/path resolution
+│   │   └── git_ops.py         small git plumbing helpers
 │   ├── reporting/             deck generators that turn results into deliverables
 │   │   ├── summary_deck.py                stakeholder slide deck (run as a module)
 │   │   └── report_deck.py                 polarity-verification deck (run as a module)
@@ -46,9 +53,11 @@ hypercam/
 ├── scripts/
 │   ├── capture_gaussian_bands.sh   lab acquisition: sweep superk varia bands → data/raw/evt3_raw
 │   ├── data_image_build.sh         build the data image for the current commit and push it to GHCR
-│   └── data_image_mount.sh         pull a commit-tagged data image and mount it as data/ here
+│   ├── data_image_mount.sh         pull a commit-tagged data image and mount it as data/ here
+│   └── git/hooks/                  optional prepare-commit-msg hook (Data-lakefs-commit trailer)
 │
 ├── data/                      UNTRACKED heavy data (5.6 GB); provenance in data/README.md
+│   ├── .lakefs-commit         TRACKED pointer: git commit ↔ lakeFS data snapshot
 │   ├── raw/evt3_raw/          *.raw EVT3 recordings + 960 Hz chopper trigger CSVs
 │   ├── raw/exported_videos/   mp4 exports of representative recordings
 │   ├── cad_models/            3D-printed chopper LED wheel (STEP/STL/3MF + design brief)
@@ -150,12 +159,81 @@ Recordings are labeled from their filenames: the last number when present
 
 ---
 
-## Data version control: one container image per commit
+## Data version control: aligned git and lakeFS histories
 
 The experiment data (`data/`, ~5.6 GB of EVT3 recordings and CAD models) and
 the analysis outputs (`results/`, ~350 MB) are deliberately **not** stored in
-git. Instead they are version-locked to commits through data-only container
-images published to GHCR:
+git. They are versioned in **two parallel mechanisms that stay aligned**:
+
+1. **lakeFS** (primary): a Git-like versioning layer over object storage.
+   Every git commit names, in a tiny tracked pointer file, the lakeFS commit
+   that holds the matching data snapshot — so "check out the data for this
+   commit" is one command.
+2. **Commit-tagged GHCR images** (fallback): the same trees packed into a
+   data-only container image, for machines that only need `podman` and no
+   lakeFS server.
+
+### lakeFS: the pointer file and the two commands
+
+`data/.lakefs-commit` is tracked by git and contains the binding:
+
+```yaml
+repository: hypercam-data
+branch: main
+commit: 071f8338aba0...   # lakeFS commit holding data/raw, cad_models/, results/
+```
+
+Everything else follows from two commands:
+
+| Command | Purpose |
+|---|---|
+| `hypercam-data-commit` | upload changed `data/{raw,cad_models}` + `results/` (minus `results/archive`) to the lakeFS branch, commit it, write the new hash into the pointer and stage it. Add `--git-commit -m "..."` to also create the git commit, which then carries the hash both in the pointer file and as a `Data-lakefs-commit:` message trailer. |
+| `hypercam-data-checkout` | read the pointer at a git ref (default `HEAD`) and make the local trees byte-identical to that snapshot — downloads changed files, restores their timestamps, removes files the snapshot does not contain. |
+| `hypercam-data-status` | show the drift between pointer, branch head and local tree in both directions, and whether the histories are aligned. |
+
+The daily loop on the machine with the data:
+
+```bash
+hypercam-data-commit --git-commit -m "feat(analysis): new sweep results"
+git push
+```
+
+Everywhere else (laptop, CI, a collaborator's clone):
+
+```bash
+git pull
+hypercam-data-checkout          # data for HEAD, byte-exact
+hypercam-data-checkout --git-ref HEAD~5   # any historical commit
+```
+
+Configuration resolves in order: CLI flags → `HYPERCAM_LAKEFS_*`
+environment variables → the standard `LAKECTL_*` variables →
+`~/.lakectl.yaml` → defaults (`http://localhost:8000`, repository
+`hypercam-data`, branch `main`). The lakeFS server itself is not part of
+this repository; point the commands at whatever endpoint you run — a
+single-binary deployment is enough:
+
+```bash
+lakefs run                       # http://localhost:8000, then visit /setup
+hypercam-data-commit --create --storage-namespace s3://<bucket>/hypercam-data
+```
+
+(`--storage-namespace` is only needed the first time, to create the
+repository; use `local:///path` for a filesystem block store.) Historical
+checkouts read an immutable commit — never a mutable branch — so concurrent
+checkouts cannot corrupt each other. Change detection is size + modification
+time in whole seconds (what lakeFS records per object), the same trade-off
+git's index makes; files rewritten within the same second as their previous
+sync are re-detected on the next run.
+
+The optional `scripts/git/hooks/prepare-commit-msg` hook mirrors the
+pointer into every commit message automatically:
+
+```bash
+git config core.hooksPath scripts/git/hooks
+```
+
+### GHCR data image: commit-tagged snapshots without a lakeFS server
 
 - `Containerfile` defines an image with no base layer (`FROM scratch`) that
   contains nothing but `data/raw/`, `data/cad_models/` and `results/`
@@ -190,6 +268,8 @@ images published to GHCR:
   fuse-overlayfs`). The mount state is recorded in `data/.mount`
   (git-ignored). Inside a container you can skip the host mount entirely:
   `podman run --mount type=image,src=ghcr.io/<owner>/<repo>-data:sha-<sha>,target=/data <image>`.
+  While an image is mounted, the lakeFS commands refuse to run (they detect
+  the symlinked mounts); `--unmount` first, then sync.
 
 - `.github/workflows/data-image.yml` keeps the mapping dense: **every push
   (i.e. every commit)** runs the `build-and-publish` job on a self-hosted
@@ -206,7 +286,9 @@ images published to GHCR:
 Storage note: the registry deduplicates identical layers, so publishing
 unchanged data for new commits is nearly free. Local podman storage does
 accumulate one copy per data change; prune stale snapshots with
-`podman rmi ghcr.io/<owner>/<repo>-data:sha-<old-sha>`.
+`podman rmi ghcr.io/<owner>/<repo>-data:sha-<old-sha>`. lakeFS likewise
+keeps every snapshot reachable through its history; garbage-collect
+superseded blocks server-side when the retention policy allows.
 
 ---
 
@@ -218,8 +300,9 @@ accumulate one copy per data change; prune stale snapshots with
    then `reports/README.md` for the stakeholder deliverables.
 3. Run the test suite: `uv run pytest` (no hardware or openevt build needed).
 4. Get the data: either the lab workstation already has it in `data/`, or
-   pull the snapshot matching your commit —
-   `scripts/data_image_mount.sh --sha "$(git rev-parse HEAD)"`.
+   pull the snapshot matching your checkout —
+   `hypercam-data-checkout` (lakeFS; see "Data version control"), or
+   `scripts/data_image_mount.sh --sha "$(git rev-parse HEAD)"` (GHCR image).
 5. Re-run the main analysis end to end:
    `uv run hypercam --pattern 'data/raw/evt3_raw/spectral_*.raw'` and compare
    against `results/spectral_correlation/pearson_correlation.csv`.
