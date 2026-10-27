@@ -1,0 +1,10 @@
+[package]
+name = "demo"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+dfdx = { version = "0.13.0", features = ["cuda", "cudnn", "numpy"] }
+faer = "0.24.0"
+ndarray = "0.17.2"
+plotters = "0.3.7"
