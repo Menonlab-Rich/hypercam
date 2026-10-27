@@ -6,9 +6,12 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "lakefs>=0.16.0",
+    "marimo>=0.25.2",
     "matplotlib>=3.11.2",
     "openevt>=1.0.4",
     "pint>=0.26.1",
+    "polars>=2.0.0",
+    "pyarrow>=26.0.0",
     "python-pptx>=1.0.2",
     "pyyaml>=6.0.3",
     "scipy>=1.14.0",
@@ -39,3 +42,8 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.uv.workspace]
+members = [
+    "src/hypercam/machine_learning/dirchlet_unmixing",
+]
