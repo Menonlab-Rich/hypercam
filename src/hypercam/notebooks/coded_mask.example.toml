@@ -1,8 +1,8 @@
 # ==============================================================================
 # Author:        Richard G. Baird
-# Date Modified: 2026-10-05
+# Date Modified: 2026-10-27
 # Notice:        This file was authored or modified with the assistance of
-#                Kilo (Qwen3.8-flash).
+#                Kilo (openrouter/qwen/qwen3.8-flash).
 # ==============================================================================
 #
 # Headless configuration for coded_mask.py (e.g. CHPC cluster runs).
@@ -15,14 +15,24 @@
 [design]
 # Sensor sampling raster (H, W) in detector pixels.
 sensor_raster = [720, 1280]
-# Physical pitch of one detector pixel (m). Propagation grid.
-sensor_pixel_pitch = 3.45e-6
-# Physical pitch of one DOE cell (m). > sensor_pixel_pitch means one DOE
-# structure covers multiple detector pixels; DOE_RASTER is derived so the
-# DOE's physical extent matches the sensor field of view.
+# Physical pitch of one detector pixel (m). SAGE IV reference detector.
+sensor_pixel_pitch = 5.5e-6
+# Physical pitch of one DOE cell (m). ~2x the detector pitch.
 doe_pixel_pitch = 1.035e-5
-# Peak DOE relief thickness (m) scaling the MLP output.
-doe_max_thickness = 5.0e-6
+# Fourier-plane lens focal length (m): f = 2*pitch/theta = 55 mm gives two
+# detector pixels per 200 urad resolution element.
+fourier_lens_focal_length = 55.0e-3
+# Coherent DOE window diameter (m): D = lambda/theta = 2.75 mm at 550 nm,
+# setting the 200 urad diffraction limit and the 2 px speckle grain.
+# DOE_RASTER is derived as ceil(D / doe_pixel_pitch) per side.
+doe_clear_aperture_diameter = 2.75e-3
+# Peak DOE relief thickness (m) -- the pillar-height budget. Spectral
+# decorrelation scales as delta-lambda ~ lambda^2/(2*(n-1)*h_rms): 50 um
+# gives ~17 nm at 550 nm, inside the closest remaining channel pair
+# (525/600, 75 nm apart). Aspect ratio ~4.8 over a 10.35 um cell -- a
+# multi-dip or hard-mask process. 100 um reaches the HySpec2 9.4 nm scale
+# (AR ~9.7) with a proportionally wider angular scatter envelope.
+doe_max_thickness = 50.0e-6
 # Search range for the trainable DOE-to-focal-plane offset (m).
 doe_gap_range = [1.0e-5, 1.0e-3]
 # Nominal offset: optimizer start and evaluation fallback (m).
@@ -30,9 +40,26 @@ doe_gap = 5.0e-4
 # Spectral simulation band [min, max) in nm and bin step (nm).
 wavelength_band_nm = [380.0, 750.0]
 wavelength_step_nm = 5.0
+# Target channels (centre_nm, centre_tolerance_nm, FWHM_nm, FWHM_tol_nm).
+# The 448/452 nm pair is retired: separating 4 nm needs ~78 um of height
+# spread, outside the manufacturable budget.
+spectral_channels_nm = [
+    [386.0, 3.0, 15.0, 3.0],
+    [525.0, 3.0, 15.0, 2.5],
+    [600.0, 2.0, 15.0, 3.0],
+    [1020.0, 3.0, 15.0, 3.0],
+]
 # "rect" or "circular" entrance aperture.
 aperture_type = "rect"
 aperture_radius_fraction = 0.5
+# "pillars": one free height per lithographic cell (non-negative, bounded,
+# aperiodic, unblazed).  "mlp": the smooth SIREN thickness field.
+parameterization = "pillars"
+# Robust spectral-separation penalty: weight * mean relu(rho_ij - target)^2
+# over band-integrated channel-code pairs.  Raise the weight if a pair
+# stalls near the target before raising doe_max_thickness.
+channel_overlap_target = 0.5
+channel_overlap_weight = 1.0
 
 [run]
 # "cuda", "cpu", or unset to auto-detect.
@@ -46,7 +73,7 @@ create_rgb_video = false
 video_codec = "FFV1"
 # Integer for reproducible MLP init and Monte Carlo phase screens;
 # comment out to keep fresh randomness per run.
-seed = 20261005
+seed = 20261027
 
 [paths]
 # Cauchy dispersion curve table (columns "Wavelength (m)" and "n").
@@ -60,19 +87,23 @@ transformed_dir = "/scratch/baird/hypercam/transformed_running_frog"
 
 [training]
 # Keys are forwarded verbatim to train_mask(); see its signature.
+# Free pillar heights need orders of magnitude more epochs than an MLP
+# field: each cell is its own coordinate.
 epochs = 1000
-learning_rate = 1.0e-4
+learning_rate = 1.0e-3
 photons_per_bin = 1.0e5
 background_photons = 1.0
-patch_size = 256
+# Sensor-pitch patch must contain the full Fraunhofer code envelope:
+# +/- f*lambda/(2*DOE cell) = +/- 493 px at 1020 nm, f = 55 mm.
+patch_size = 1024
 print_every = 100
 monte_carlo_samples = 2
 optim_space = false
 optim_spectral = true
-# Estimation objective: "event" (default; hypercam is an event sensor --
-# log-ratio Fisher blocks over consecutive frame pairs, Shah et al.
-# Eq. (13), six parameters (x, y, lambda) at t and t-tau) or "frame"
-# (blinking-particle Poisson baseline, Eq. (10)).
-sensor = "event"
+# Estimation objective: "frame" (default; the Fourier-plane bench measures
+# a static plane-wave diffraction pattern, so the Poisson frame FI) or
+# "event" (legacy temporal experiment: log-ratio Fisher over consecutive
+# frame pairs, Shah et al. Eq. (13)).
+sensor = "frame"
 # Frame-mode weighting only: "poisson" (exact) or "gaussian" (shot + read).
 noise_model = "poisson"
