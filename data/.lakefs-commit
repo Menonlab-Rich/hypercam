@@ -3,6 +3,6 @@
 # holding the matching data snapshot (raw/, cad_models/, results/).
 repository: hypercam-data
 branch: main
-commit: 3eae4096e7599ab325cc3b73fd06d0738f64398fc998ee0fec19571c2ce40b60
-parent-git-commit: 8c0deb04dc381bd70f666f7d18f93c515493b152
-recorded-at: 2026-10-19T23:20:41Z
+commit: 9c1fb79eb1355f87c17ef7d9914047b00645f2f6c3be77bcb2a132db433579ac
+parent-git-commit: 107e043089b6b1ad3c608e58f1527cddfa41531e
+recorded-at: 2026-10-28T00:31:28Z
