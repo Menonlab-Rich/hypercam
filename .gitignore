@@ -62,3 +62,13 @@ rustc-ice-*.txt
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
+
+# Scratch directories
+scratch
+**/scratch/
+tmp
+stubs
+.agents
+
+# Ignore model outputs
+**/machine_learning/**/outputs
