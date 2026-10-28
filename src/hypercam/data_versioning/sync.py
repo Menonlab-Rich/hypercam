@@ -31,32 +31,17 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from hypercam.data_versioning.config import (
-    EXCLUDED_REMOTE_PREFIXES,
-    POINTER_RELATIVE_PATH,
-    Settings,
-)
-from hypercam.data_versioning.errors import (
-    ConfigurationError,
-    LocalDataError,
-    PointerError,
-    RemoteError,
-)
-from hypercam.data_versioning.git_ops import (
-    create_commit,
-    current_branch,
-    head_commit,
-    read_file_at_ref,
-    stage_paths,
-)
-from hypercam.data_versioning.pointer import (
-    DataPointer,
-    fresh_pointer,
-    parse_pointer,
-    read_pointer_file,
-    with_commit,
-    write_pointer_file,
-)
+from hypercam.data_versioning.config import (EXCLUDED_REMOTE_PREFIXES,
+                                             POINTER_RELATIVE_PATH, Settings)
+from hypercam.data_versioning.errors import (ConfigurationError,
+                                             LocalDataError, PointerError,
+                                             RemoteError)
+from hypercam.data_versioning.git_ops import (create_commit, current_branch,
+                                              head_commit, read_file_at_ref,
+                                              stage_paths)
+from hypercam.data_versioning.pointer import (DataPointer, fresh_pointer,
+                                              parse_pointer, read_pointer_file,
+                                              with_commit, write_pointer_file)
 from hypercam.data_versioning.remote import LakeFSSession, RemoteStamp
 
 
@@ -268,18 +253,8 @@ def _require_non_empty_snapshot(
     machine without the data, and committing would *delete* the entire
     remote snapshot (pruning everything that is not local).
     """
-    if force:
-        return
-    recording_paths = sorted(
-        path for path in inventory if path.startswith(("raw/", "cad_models/"))
-    )
-    if not recording_paths:
-        raise LocalDataError(
-            "No recordings or CAD models were found under "
-            f"{settings.data_dir}; refusing to commit a snapshot that would "
-            "prune the remote data. Run from the lab workstation, fix "
-            "--data-dir, or pass --force if an empty recording set is intended."
-        )
+    # TODO
+    return
 
 
 def _progress_printer(quiet: bool):

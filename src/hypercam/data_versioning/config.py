@@ -47,12 +47,7 @@ RESULTS_DIRNAME = "results"
 #: data image: (local sub-path relative to the data/results roots, remote
 #: object-name prefix). results/archive/ is deliberately excluded on both
 #: sides, matching scripts/data_image_build.sh.
-CONTENT_ROOTS: tuple[tuple[str, str], ...] = (
-    ("raw", "raw/"),
-    ("cad_models", "cad_models/"),
-    (RESULTS_DIRNAME, f"{RESULTS_DIRNAME}/"),
-)
-
+CONTENT_ROOTS: tuple[tuple[str, str], ...] = tuple( (dirname, f'{dirname}/') for root, dirnames, fnames in os.walk(DEFAULT_DATA_DIRNAME) for dirname in dirnames if root == DEFAULT_DATA_DIRNAME )
 #: Sub-trees never pushed to lakeFS nor pulled from it (provenance-only data).
 EXCLUDED_REMOTE_PREFIXES: tuple[str, ...] = (f"{RESULTS_DIRNAME}/archive/",)
 
@@ -124,18 +119,27 @@ class Settings:
         elsewhere on the machine (override via ``--data-dir`` or
         ``HYPERCAM_DATA_DIR``), mirroring ``scripts/data_image_build.sh``.
         """
-        return tuple(
-            ContentRoot(
-                local_path=self._local_root_for(local_name),
-                remote_prefix=remote_prefix,
-            )
-            for local_name, remote_prefix in CONTENT_ROOTS
-        )
+        return self.discover_content_roots(Path(DEFAULT_DATA_DIRNAME), Path(RESULTS_DIRNAME))
 
-    def _local_root_for(self, local_name: str) -> Path:
-        if local_name == RESULTS_DIRNAME:
-            return self.repo_root / RESULTS_DIRNAME
-        return self.data_dir / local_name
+
+    def discover_content_roots(self, data_dir: Path, results_dir: Path) -> tuple[ContentRoot, ...]:
+        """Dynamically construct ContentRoot entries for all top-level data subdirectories."""
+        roots: list[ContentRoot] = []
+        
+        # 1. Register top-level subdirectories inside data_dir (e.g. raw/, cad_models/, hyperspectral/)
+        if data_dir.is_dir():
+            for path in data_dir.iterdir():
+                if path.is_dir() and not path.name.startswith("."):
+                    prefix = f"{path.name}/"
+                    if not any(prefix.startswith(ex) for ex in EXCLUDED_REMOTE_PREFIXES):
+                        roots.append(ContentRoot(local_path=path, remote_prefix=prefix))
+                        
+        # 2. Register results_dir
+        if results_dir.is_dir():
+            roots.append(ContentRoot(local_path=results_dir, remote_prefix="results/"))
+        
+        return tuple(roots)
+
 
     def local_root_for_prefix(self, remote_prefix: str) -> Path:
         """Map a remote object prefix back to its local directory.

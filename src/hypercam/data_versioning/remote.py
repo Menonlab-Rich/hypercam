@@ -1,8 +1,9 @@
 # ==============================================================================
 # Author:        Richard G. Baird
-# Date Modified: 2026-10-10
+# Date Modified: 2026-10-26
 # Notice:        This file was authored or modified with the assistance of
-#                Kilo (GLM, z-ai/glm-5.3-flash).
+#                Kilo (Qwen, qwen/qwen3.8-flash) and Kilo (GLM,
+#                z-ai/glm-5.3-flash).
 # ==============================================================================
 
 """Connection to the lakeFS server and the raw transfer primitives.
@@ -15,9 +16,11 @@ commands need:
 - list every object under the synced prefixes at a given reference,
 - upload a local file (two-phase presigned staging upload where possible,
   so the file's modification time and size travel with the object and make
-  the cheap size+mtime change detection reliable; the transports degrade
-  to a shared-filesystem staging copy and finally to the upload API itself
-  when the block store cannot serve presigned URLs),
+  the cheap size+mtime change detection reliable; files above the multipart
+  threshold travel as a presigned multipart upload so a single flaky
+  connection can never strand a tens-of-gigabytes transfer; the transports
+  degrade to a shared-filesystem staging copy and finally to the upload API
+  itself when the block store cannot serve presigned URLs),
 - download an object in bounded chunks to a temporary file and atomically
   move it into place with the remote modification time restored,
 - batch-delete objects and create commits with metadata.
@@ -28,25 +31,29 @@ message attached, so the CLI can print one actionable diagnostic.
 
 from __future__ import annotations
 
-from datetime import datetime, time
 import hashlib
 import io
 import json
+import math
 import os
 import shutil
-from time import strftime
+import time
 import urllib.parse
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
+from time import strftime
+
+import urllib3.exceptions
 
 import lakefs
 import lakefs_sdk
-from lakefs_sdk.exceptions import ApiException as SdkApiException
 from lakefs.branch import Branch
 from lakefs.client import Client
 from lakefs.exceptions import LakeFSException, NotFoundException
 from lakefs.models import ObjectInfo
 from lakefs.repository import Repository
+from lakefs_sdk.exceptions import ApiException as SdkApiException
 
 from hypercam.data_versioning.config import Settings
 from hypercam.data_versioning.errors import RemoteError
@@ -61,6 +68,20 @@ LAKEFS_ERRORS = (LakeFSException, SdkApiException)
 #: Bytes fetched per ranged request while downloading an object.  Bounded so
 #: multi-hundred-megabyte recordings never have to fit in memory at once.
 _DOWNLOAD_CHUNK_BYTES = 8 * 1024 * 1024
+
+#: Files at least this large travel as a presigned *multipart* upload.  A
+#: single PUT of a tens-of-gigabytes recording is one long-lived connection:
+#: any middlebox or proxy that drops it (as the s3.rbaird.me hairpin did to
+#: a 74 GB PUT) strands the whole transfer.  Split into parts, each part is
+#: a short PUT that can be retried on its own.
+_MULTIPART_THRESHOLD_BYTES = 256 * 1024 * 1024
+
+#: Target part size for multipart uploads.  74.5 GB / 128 MiB is ~553 parts,
+#: far below the S3 limit of 10,000 parts per upload.
+_MULTIPART_PART_BYTES = 128 * 1024 * 1024
+
+#: Attempts per part before giving up on the whole upload.
+_MULTIPART_PART_ATTEMPTS = 3
 
 #: Maximum number of object paths sent per batch-delete request.
 _DELETE_BATCH_SIZE = 1000
@@ -235,7 +256,9 @@ class LakeFSSession:
         stores and network topologies lakeFS is deployed with, tried in
         order until one works:
 
-        - presigned PUT (S3/GCS/Azure): bytes go straight to storage;
+        - presigned PUT (S3/GCS/Azure): bytes go straight to storage; files
+          of :data:`_MULTIPART_THRESHOLD_BYTES` or larger travel instead as a
+          presigned *multipart* upload, one short retryable PUT per part;
         - shared-filesystem staging (local block store): the server hands
           out a ``local://`` physical address the client can write directly;
         - the upload API itself: the server pulls the bytes from the request
@@ -269,6 +292,11 @@ class LakeFSSession:
             staging_location = None
 
         if staging_location is not None and staging_location.presigned_url:
+            if file_size >= _MULTIPART_THRESHOLD_BYTES:
+                self._upload_via_presigned_multipart(
+                    branch, staging_location, local_path, remote_path, file_size
+                )
+                return
             checksum = _transfer_to_presigned_url(
                 self.client, staging_location.presigned_url, local_path, file_size
             )
@@ -322,6 +350,128 @@ class LakeFSSession:
                 f"local file holds {file_size}; refusing to continue on a "
                 "corrupted transfer."
             )
+
+    def _upload_via_presigned_multipart(
+        self,
+        branch: Branch,
+        staging_location: lakefs_sdk.StagingLocation,
+        local_path: Path,
+        remote_path: str,
+        file_size: int,
+    ) -> None:
+        """Stream *local_path* to the block store as a presigned multipart upload.
+
+        The transport for files of :data:`_MULTIPART_THRESHOLD_BYTES` and
+        above.  lakeFS's experimental presign-multipart API hands out one
+        short-lived presigned PUT per part (S3 multipart semantics): a
+        connection that dies costs only the retry of its current part, not
+        the whole transfer — which for a 74 GB recording is the difference
+        between an upload and an afternoon of lost work.  Each part's ETag
+        (an MD5 of the part bytes, as S3 computes it) is collected and
+        handed to ``complete_presign_multipart_upload``, which assembles and
+        links the object server-side.
+
+        The complete payload carries no mtime field (unlike the single-PUT
+        staging link), so the server stamps the object with its own clock;
+        the local file's mtime is then aligned to the object's, exactly as
+        :meth:`_upload_via_server_api` does, to keep repeated runs converged.
+
+        :param branch: target branch.
+        :param staging_location: the presigned staging address from
+            :meth:`upload_file` (its physical address seeds the multipart
+            session).
+        :param local_path: file to read.
+        :param remote_path: destination object name.
+        :param file_size: size of *local_path*.
+        :raise RemoteError: when initiation, a part, or completion fails, or
+            when the stored size does not match the local file.
+        """
+        sdk_client = self.client.sdk_client
+        try:
+            initiation = sdk_client.experimental_api.create_presign_multipart_upload(
+                branch.repo_id,
+                branch.id,
+                remote_path,
+                math.ceil(file_size / _MULTIPART_PART_BYTES),
+            )
+        except LAKEFS_ERRORS as error:
+            raise RemoteError(
+                f"cannot start a multipart upload for {remote_path!r}: {error}"
+            ) from error
+
+        presigned_urls = initiation.presigned_urls or []
+        if not presigned_urls:
+            raise RemoteError(
+                f"the server issued no presigned part URLs for {remote_path!r}"
+            )
+        # Part boundaries follow from the number of URLs the server chose to
+        # issue; the request above only hints at the desired count.
+        part_size = math.ceil(file_size / len(presigned_urls))
+        pool_manager = (
+            sdk_client.objects_api.api_client.rest_client.pool_manager
+        )
+        upload_parts: list[lakefs_sdk.UploadPart] = []
+        print(
+            f"beginning multipart upload ({len(presigned_urls)} parts of "
+            f"~{part_size // (1024 * 1024)} MiB): "
+            f"{strftime('%d-%H-%M')}"
+        )
+        try:
+            with local_path.open("rb") as source:
+                for part_number, part_url in enumerate(presigned_urls, start=1):
+                    offset = (part_number - 1) * part_size
+                    length = min(part_size, file_size - offset)
+                    if length <= 0:
+                        raise RemoteError(
+                            f"the server issued more parts than {file_size} bytes "
+                            f"can fill for {remote_path!r}"
+                        )
+                    etag = _put_part_to_presigned_url(
+                        pool_manager, part_url, source, offset, length, part_number
+                    )
+                    upload_parts.append(
+                        lakefs_sdk.UploadPart(part_number=part_number, etag=etag)
+                    )
+                    print(
+                        f"  part {part_number}/{len(presigned_urls)} done "
+                        f"({strftime('%d-%H-%M')})"
+                    )
+            object_stats = sdk_client.experimental_api.complete_presign_multipart_upload(
+                branch.repo_id,
+                branch.id,
+                initiation.upload_id,
+                remote_path,
+                complete_presign_multipart_upload=(
+                    lakefs_sdk.CompletePresignMultipartUpload(
+                        physical_address=initiation.physical_address,
+                        parts=upload_parts,
+                    )
+                ),
+            )
+        except LAKEFS_ERRORS as error:
+            _abort_presigned_multipart(sdk_client, branch, initiation, remote_path)
+            raise RemoteError(
+                f"multipart upload of {remote_path!r} failed: {error}"
+            ) from error
+        except RemoteError:
+            _abort_presigned_multipart(sdk_client, branch, initiation, remote_path)
+            raise
+        except (urllib3.exceptions.HTTPError, OSError) as error:
+            _abort_presigned_multipart(sdk_client, branch, initiation, remote_path)
+            raise RemoteError(
+                f"multipart upload of {remote_path!r} failed: {error}"
+            ) from error
+        print(f"upload completed: {strftime('%d-%H-%M')}")
+
+        stored_size = object_stats.size_bytes
+        if stored_size is not None and stored_size != file_size:
+            raise RemoteError(
+                f"server stored {stored_size} bytes for {remote_path!r} but the "
+                f"local file holds {file_size}; refusing to continue on a "
+                "corrupted transfer."
+            )
+        if object_stats.mtime is not None:
+            os.utime(local_path, times=(object_stats.mtime, object_stats.mtime))
 
     def _upload_via_server_api(
         self,
@@ -496,6 +646,145 @@ class _HashingReader(io.RawIOBase):
         super().close()
 
 
+class _BoundedFileReader(io.RawIOBase):
+    """A read-only view of at most *length* bytes of an already-open file.
+
+    urllib3 streams a body until ``read()`` returns empty; handing it the
+    raw file would send everything past the part boundary.  This wrapper
+    stops exactly at the boundary so each part PUT carries precisely its
+    own slice with a correct Content-Length.
+
+    :param source: the open binary file positioned anywhere (it is seeked
+        by the caller before each part).
+    :param length: maximum bytes to expose.
+    """
+
+    def __init__(self, source, length: int) -> None:
+        self._source = source
+        self._remaining = length
+
+    def readable(self) -> bool:
+        return True
+
+    def read(self, size: int = -1) -> bytes:
+        if self._remaining <= 0:
+            return b""
+        amount = self._remaining if size is None or size < 0 else min(size, self._remaining)
+        chunk = self._source.read(amount)
+        self._remaining -= len(chunk)
+        return chunk
+
+
+def _put_part_to_presigned_url(
+    pool_manager,
+    url: str,
+    source,
+    offset: int,
+    length: int,
+    part_number: int,
+) -> str:
+    """PUT one part slice to its presigned URL and return the storage ETag.
+
+    Each attempt re-seeks the shared file, so a retried part re-sends the
+    same bytes.  Connection-level failures (TLS resets, protocol errors)
+    and server-side 5xx/429 answers are retried
+    :data:`_MULTIPART_PART_ATTEMPTS` times with exponential backoff; a
+    client-side rejection (an expired presigned URL, a bad signature) is
+    final and reported immediately.
+
+    :param pool_manager: the lakeFS client's urllib3 pool manager.
+    :param url: presigned PUT URL for this part.
+    :param source: the open binary file holding the whole upload.
+    :param offset: byte offset of the part inside *source*.
+    :param length: byte length of the part.
+    :param part_number: 1-based part index (for diagnostics).
+    :return: the ETag header the storage returned for the part.
+    :raise RemoteError: after the retry budget is exhausted, or on a
+        non-retryable rejection.
+    """
+    last_error: Exception | None = None
+    for attempt in range(1, _MULTIPART_PART_ATTEMPTS + 1):
+        source.seek(offset)
+        try:
+            response = pool_manager.request(
+                method="PUT",
+                url=url,
+                body=_BoundedFileReader(source, length),
+                headers={
+                    "Content-Length": str(length),
+                    "Content-Type": "application/octet-stream",
+                },
+                retries=False,
+            )
+        except (urllib3.exceptions.HTTPError, OSError) as error:
+            last_error = error
+            print(
+                f"  part {part_number} attempt {attempt} failed: {error}; "
+                f"retrying in {2 ** attempt}s"
+            )
+            time.sleep(2 ** attempt)
+            continue
+        if response.status < 400:
+            etag = response.getheader("ETag")
+            if not etag:
+                raise RemoteError(
+                    f"storage returned no ETag for part {part_number} of a "
+                    "multipart upload; cannot complete it."
+                )
+            return etag.strip('"')
+        body = response.data.decode("utf-8", errors="replace")
+        response.close()
+        if response.status in (429, 500, 502, 503, 504):
+            last_error = RemoteError(
+                f"part {part_number}: HTTP {response.status} {body}"
+            )
+            print(
+                f"  part {part_number} attempt {attempt} got HTTP "
+                f"{response.status}; retrying in {2 ** attempt}s"
+            )
+            time.sleep(2 ** attempt)
+            continue
+        raise RemoteError(
+            f"multipart part {part_number} rejected with HTTP "
+            f"{response.status}: {body}"
+        )
+    raise RemoteError(
+        f"multipart part {part_number} failed after "
+        f"{_MULTIPART_PART_ATTEMPTS} attempts: {last_error}"
+    )
+
+
+def _abort_presigned_multipart(
+    sdk_client,
+    branch: Branch,
+    initiation: lakefs_sdk.PresignMultipartUpload,
+    remote_path: str,
+) -> None:
+    """Best-effort cleanup of a failed multipart session on the block store.
+
+    :param sdk_client: the raw lakeFS SDK client.
+    :param branch: branch the upload was started on.
+    :param initiation: the ``create`` response naming the session.
+    :param remote_path: object name (for diagnostics only; the abort is
+        attempted regardless — orphaned parts otherwise bill and clutter).
+    """
+    try:
+        sdk_client.experimental_api.abort_presign_multipart_upload(
+            branch.repo_id,
+            branch.id,
+            initiation.upload_id,
+            remote_path,
+            abort_presign_multipart_upload=lakefs_sdk.AbortPresignMultipartUpload(
+                physical_address=initiation.physical_address
+            ),
+        )
+    except LAKEFS_ERRORS as error:
+        print(
+            f"  warning: could not abort multipart upload "
+            f"{initiation.upload_id!r} for {remote_path!r}: {error}"
+        )
+
+
 def _transfer_to_presigned_url(
     client: Client,
     url: str,
@@ -531,6 +820,7 @@ def _transfer_to_presigned_url(
                 "Content-Length": str(file_size),
                 "Content-Type": "application/octet-stream",
             },
+            retries=False,
         )
         if response.status >= 400:
             raise RemoteError(
