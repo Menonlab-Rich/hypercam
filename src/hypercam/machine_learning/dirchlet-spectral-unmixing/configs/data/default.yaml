@@ -1,0 +1,55 @@
+# Paired-data selection and target construction. All values come from the
+# Phase 0 audit (outputs/investigation/FINDINGS.md); nothing is guessed.
+manifest: outputs/manifests/manifest.csv
+gates: outputs/manifests/gates.json
+
+# Spectral target construction (targets.py).
+target_mode: reference_transmittance   # reference_transmittance | amplitude_corrected_counts | raw_counts
+window_min_nm: 420.0                   # analysis window of the documented workflow
+window_max_nm: 680.0
+min_snr: 0.4                           # raw-count mean/std; real files >=0.74, noise ~0.03
+min_positive_minus_negative: 5.0       # pos-mean minus neg-mean; noise ~0, real >=62
+band_label_bin_nm: 25                  # band label = weighted-mean lambda bin
+
+# Frame-density grid (data.py). A sample is a clip of n_frames model frames,
+# each accumulating frame_ms; acc_time = n_frames*frame_ms and
+# effective_fps = n_frames/acc_time = 1000/frame_ms. The spectral target is
+# constant per recording across ALL densities. Multiple n_frames per frame_ms
+# give several ways to reach the SAME effective fps (different spans), and
+# train clip starts are re-randomized every epoch (val/test fixed). Every
+# frame_ms must be an integer multiple of evt3.accumulation_us AND satisfy
+# the accumulation floor below; with 250 us units and floor 4, the finest
+# legal frame is 1 ms = 1000 effective fps.
+densities:
+  - {n_frames: 2, frame_ms: 1.0}       # 1000 eff fps, 2 ms span
+  - {n_frames: 4, frame_ms: 1.0}       # 1000 eff fps, 4 ms span
+  - {n_frames: 8, frame_ms: 1.0}       # 1000 eff fps, 8 ms span
+  - {n_frames: 2, frame_ms: 4.0}       # 250 eff fps
+  - {n_frames: 4, frame_ms: 4.0}
+  - {n_frames: 8, frame_ms: 4.0}
+  - {n_frames: 2, frame_ms: 10.0}      # 100 eff fps
+  - {n_frames: 4, frame_ms: 10.0}
+  - {n_frames: 8, frame_ms: 10.0}
+  - {n_frames: 2, frame_ms: 25.0}      # 40 eff fps
+  - {n_frames: 4, frame_ms: 25.0}
+  - {n_frames: 8, frame_ms: 25.0}
+  - {n_frames: 2, frame_ms: 50.0}      # 20 eff fps
+  - {n_frames: 4, frame_ms: 50.0}
+  - {n_frames: 8, frame_ms: 50.0}
+  - {n_frames: 2, frame_ms: 100.0}     # 10 eff fps
+  - {n_frames: 4, frame_ms: 100.0}
+  - {n_frames: 8, frame_ms: 100.0}
+  - {n_frames: 2, frame_ms: 250.0}     # 4 eff fps
+  - {n_frames: 4, frame_ms: 250.0}
+  - {n_frames: 8, frame_ms: 250.0}
+min_accumulations_per_frame: 4         # empirical floor: fewer => not enough info
+clips_per_density: 4                   # slots per recording+density (random starts in train)
+max_recordings: null                   # cap pairs per split (smoke tests)
+transform: log1p                       # count transform applied when assembling clips
+
+# Activity-frame preprocessing (data.py).
+crop: null                             # square crop px, null = full 720x1280
+highpass_px: 0                         # common-mode high-pass radius (off by default)
+normalize: none                        # none | p999
+cache_dir: outputs/cache
+num_workers: 4

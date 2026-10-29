@@ -1,0 +1,12 @@
+max_epochs: 100
+batch_size: 16
+lr: 1.0e-3
+weight_decay: 1.0e-4
+patience: 10                           # EarlyStopping on val/nll
+seed: 42
+accelerator: auto                      # gpu when CUDA works (RTX 5080)
+devices: auto
+val_split_fraction: 0.15
+test_split_fraction: 0.15
+split_mode: band                       # band = hold out whole stimulus bands
+                                       # (dataset has exactly 3: 425/500/525)

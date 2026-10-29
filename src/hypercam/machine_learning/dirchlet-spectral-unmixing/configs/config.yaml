@@ -1,0 +1,35 @@
+defaults:
+  - data: default
+  - model: default
+  - training: default
+  - logging: default
+  - _self_
+
+# Where the paired lakeFS data lives. The model project sits four levels
+# below the repository root (src/hypercam/machine_learning/<project>).
+data_root: ../../../../data
+
+# EVT3 decoding: location of the built openevt extension + device plugins.
+# Build both from the repo root (see README); a single combined cargo
+# invocation poisons the plugin library with Python symbols. The cache holds
+# DECODED EVENTS per recording (density-independent); accumulation_us is the
+# fine accumulation unit defining the density grid: with
+# data.min_accumulations_per_frame = 4, the finest legal frame window is
+# 4 x 250 us = 1 ms (1000 effective fps).
+evt3:
+  library_dir: ../../../../openevt/target/release
+  polarity_mode: both          # on | off | both
+  accumulation_us: 250         # fine accumulation unit (microseconds)
+
+out:
+  tag: main
+
+force: false
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: outputs/train/${out.tag}/${now:%Y%m%d_%H%M%S}
+  sweep:
+    dir: outputs/train/${out.tag}/${now:%Y%m%d_%H%M%S}

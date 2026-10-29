@@ -307,3 +307,72 @@ We will validate the reliability of the predicted total concentration $S = \sum_
 
 * **Objective:** Plot predicted Dirichlet variance $\text{Var}(y_k) = \frac{\hat{p}_k (1 - \hat{p}_k)}{S + 1}$ against observed Simplex Mean Squared Error $\frac{1}{4096}\|\mathbf{\hat{p}} - \mathbf{y}\|_2^2$ per bucket, and measure Mean Absolute Calibration Error (MACE).
 * **Expected Diagnostic Utility:** Confirms whether $S$ acts as a true metric of spatial pattern ambiguity. High $S$ must reliably map to low reconstruction error, allowing downstream automated pipelines to flag ambiguous spatial exposures without ground-truth reference spectra.
+---
+
+## 8. Implementation Revision (2026-10-27, event-camera adaptation)
+
+Findings from Phase 0 (full evidence in `outputs/investigation/FINDINGS.md`)
+supersede three design assumptions:
+
+- **Input representation.** The model consumes EVT3 event-camera activity
+  frames, not RGB images: per 10 ms accumulation window, events are rasterized
+  (polarity `on|off|both`), transformed with `log1p`, and averaged into a
+  `window_ms` (default 500 ms) input frame of shape 720x1280 (sensor native).
+  Crop, common-mode high-pass, and p999 scaling are optional config
+  (`data.crop`, `data.highpass_px`, `data.normalize`).
+- **Configurable K.** Every `4096` in §2-§7 is replaced by the manifest's
+  spectral bin count (K = 2556 for the 420-680 nm window over the 4096-bin
+  instrument axis, range 420.0-679.9 nm). The loss computes `lgamma(K)` and
+  `digamma(K)` at runtime; `model.spectral_bins: null` sources K from
+  `outputs/manifests/gates.json`.
+- **Ground truth.** Targets are the reference-normalized transmittance
+  simplex (divide by `reference.parquet`, window 420-680 nm, median filter,
+  Savitzky-Golay, per `src/hypercam/notebooks/spectra/analysis.py`), NOT raw
+  amplitude-corrected counts. Noise gating uses the raw-count SNR
+  (`mean/std`) and positive-vs-negative asymmetry — a dark frame is
+  symmetric about zero (SNR ~0, asymmetry ~0) while real spectra have
+  SNR >= 0.74, asymmetry >= 62. 264/265 pairs pass. The amplitude-corrected
+  and raw modes remain selectable via `data.target_mode`.
+- **Pairing.** Spectra and recordings join on the timestamp stem
+  `%Y-%m-%d_%H-%M-%S` embedded in both filenames (event files append their
+  own colon-form capture time; spectrum files may end `.csv` or `.parquet` —
+  both are Parquet bytes). 264 usable pairs across three stimulus bands
+  (425/500/525 nm); band-holdout splits: train 425, val 500, test 525.
+- **Logging.** TensorBoard + CSV always; MLflow (Basic auth, credentials from
+  the environment) when reachable, under experiment
+  `dirchlet-spectral-unmixing`. Checkpoint monitor: `val/nll`.
+
+## 9. Frame-Density Operation (2026-10-29)
+
+The model operates across frame densities, not a single frame rate. A sample
+is a clip of `n_frames` model frames each accumulating `frame_ms`, spanning
+`acc_time = n_frames * frame_ms`; the system's **effective fps** is defined
+as
+
+    effective_fps = n_frames / acc_time = 1000 / frame_ms.
+
+Rationale: several accumulated frames are required before a per-pixel
+gray-level intensity estimate is meaningful, so the raw per-frame rate is not
+the operating metric — accuracy-vs-effective-fps is (see `eval.py`).
+
+- **Accumulation floor.** Each model frame must integrate at least 4
+  individual accumulation windows (empirical); with the 250 us accumulation
+  unit this bounds the finest frame at 1 ms = 1000 effective fps. Enforced
+  in `evt3.frames_per_model_frame`.
+- **Density grid.** `configs/data/default.yaml` lists
+  `frame_ms` x {1,4,10,25,50,100,250} by `n_frames` in {2,4,8}: several
+  frame-count/span combinations share each effective fps, so the model sees
+  multiple ways to realize one rate.
+- **Randomization.** Train clip start times are re-randomized every epoch
+  (seeded by epoch), and batches are density-grouped round-robin, so training
+  interleaves densities and positions rather than exhausting one before the
+  next. Validation/test use fixed, evenly spaced starts for comparability.
+- **Constant target.** The spectral target is per-recording and identical
+  across every density clip drawn from it (static stimulus).
+- **Caching.** The decode cache stores flat event columns (idx/t/p), not
+  pre-rasterized frames, so any density (and any clip start) is assembled
+  without re-decoding; the cache key includes the OpenEVT build.
+- **Model.** A time-shared 2D CNN encodes each frame; temporal mean++max
+  pooling makes the head agnostic to `n_frames`, and a 3-D density embedding
+  (log eff-fps, log2 n, log10 acc_time) conditions the evidence strength S on
+  the operating point.

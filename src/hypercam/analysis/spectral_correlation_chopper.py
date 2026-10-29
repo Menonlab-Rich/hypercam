@@ -183,11 +183,14 @@ def build_activity_frame(
         except StopIteration:
             break
         except OSError as error:
-            # OpenEVT 1.0.4 exposes a clean RAW EOF as OSError rather than
+            # Pre-PR#5 OpenEVT exposes a clean RAW EOF as OSError rather than
             # translating it to Python's StopIteration for some recordings.
             if "end of file" in str(error).lower() or str(error).lower() == "eof":
                 break
             raise
+        if events is None:
+            # OpenEVT >= PR #5: next_delta returns None at end of stream.
+            break
         frame_count += 1
         total_events += int(events.size)
         if events.size:

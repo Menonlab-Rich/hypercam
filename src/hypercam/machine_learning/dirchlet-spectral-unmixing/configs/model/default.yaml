@@ -1,0 +1,12 @@
+# SpectralDirichletNet geometry (model.py). spectral_bins null = taken
+# from the manifest (K = bins in the target window), never hardcoded.
+spectral_bins: null
+channels: [32, 64, 128]
+hidden_dim: 256
+
+# Loss (loss.py): activity-consistency + KL(alpha || uniform).
+loss:
+  eps: 1.0e-7
+  kl_lambda: 0.05
+  kl_warmup_epochs: 10
+  kl_modulated: true                   # scale KL by batch confidence (withdoe)

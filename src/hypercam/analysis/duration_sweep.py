@@ -176,10 +176,15 @@ class RecordingStream:
             self._exhausted = True
             return False
         except OSError as error:
+            # Pre-PR#5 OpenEVT raised EOF as OSError on some recordings.
             if "end of file" in str(error).lower() or str(error).lower() == "eof":
                 self._exhausted = True
                 return False
             raise
+        if events is None:
+            # OpenEVT >= PR #5: next_delta returns None at end of stream.
+            self._exhausted = True
+            return False
         index = self._frame_count
         self._frame_count += 1
         terms = window_terms(events, self._width, self._polarity, self._transform)

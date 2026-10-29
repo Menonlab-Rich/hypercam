@@ -1,0 +1,10 @@
+# Experiment tracking. MLflow server uses HTTP Basic auth; credentials are
+# read from the environment (never stored in configs):
+#   MLFLOW_TRACKING_URI, MLFLOW_TRACKING_USERNAME, MLFLOW_TRACKING_PASSWORD
+# If unset or unreachable, runs fall back to CSVLogger + TensorBoard only.
+mlflow:
+  enabled: true
+  tracking_uri: https://mlflow.rbaird.me
+  experiment_name: dirchlet-spectral-unmixing
+tensorboard:
+  enabled: true

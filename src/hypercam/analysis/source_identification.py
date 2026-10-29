@@ -227,9 +227,9 @@ def decode_windows(
     """Decode one recording into sparse per-window terms (one pass).
 
     Mirrors ``spectral_correlation.build_activity_frame``: window ``i`` covers
-    event times ``[i*accumulation_us, (i+1)*accumulation_us)``, and a clean
-    OpenEVT 1.0.4 end-of-file surfaces as ``OSError`` rather than
-    ``StopIteration`` for some recordings.
+    event times ``[i*accumulation_us, (i+1)*accumulation_us)``. OpenEVT >=
+    PR #5 returns ``None`` from ``next_delta`` at end of stream; older builds
+    raised ``OSError`` instead, which is still tolerated.
     """
     reader = openevt.RawFileReader(str(path))
     iterator = reader.iter()
@@ -241,9 +241,14 @@ def decode_windows(
         except StopIteration:
             break
         except OSError as error:
+            # Pre-PR#5 OpenEVT surfaces a clean end-of-file as OSError rather
+            # than StopIteration for some recordings.
             if "end of file" in str(error).lower() or str(error).lower() == "eof":
                 break
             raise
+        if events is None:
+            # OpenEVT >= PR #5: next_delta returns None at end of stream.
+            break
         archive.events_total += int(events.size)
         if events.size:
             batch_first = int(events["t"][0])
